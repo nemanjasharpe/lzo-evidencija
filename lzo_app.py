@@ -30,7 +30,7 @@ class LZOApp:
         btn_add = tk.Button(top_frame, text="+ Novo zaduženje", command=self.open_add_dialog, bg="#107c41", fg="white", font=("Arial", 9, "bold"))
         btn_add.pack(side=tk.LEFT, padx=5)
 
-        btn_delete = tk.Button(top_frame, text="Stoši selektovano", command=self.delete_selected, bg="#a80000", fg="white", font=("Arial", 9))
+        btn_delete = tk.Button(top_frame, text="Obriši selektovano", command=self.delete_selected, bg="#a80000", fg="white", font=("Arial", 9))
         btn_delete.pack(side=tk.LEFT, padx=5)
 
         tk.Label(top_frame, text="Filtriraj po radniku:", bg="#f4f4f4", font=("Arial", 10)).pack(side=tk.LEFT, padx=(20, 5))
@@ -44,8 +44,8 @@ class LZOApp:
         btn_export = tk.Button(top_frame, text="Izvezi karton radnika", command=self.export_worker_report, bg="#008a00", fg="white", font=("Arial", 9, "bold"))
         btn_export.pack(side=tk.RIGHT, padx=5)
 
-        # --- Statusna traka ---
-        self.lbl_status = tk.Label(self.root, text="Inicijalizacija sistema...", font=("Arial", 10, "italic"), anchor="w", padx=15, py=4)
+        # --- Statusna traka (Ispravljena opcija pady=4) ---
+        self.lbl_status = tk.Label(self.root, text="Inicijalizacija sistema...", font=("Arial", 10, "italic"), anchor="w", padx=15, pady=4)
         self.lbl_status.pack(fill=tk.X)
 
         # --- Tabela ---
@@ -89,7 +89,7 @@ class LZOApp:
             except Exception as e:
                 messagebox.showerror("Greška", f"Nije moguće učitati bazu: {e}")
         else:
-            self.lbl_status.config(text="Lokalna baza nije pronađena. Možete učitati podatak iz Excel fajla.", fg="blue")
+            self.lbl_status.config(text="Lokalna baza nije pronađena. Možete učitati podatke iz Excel fajla.", fg="blue")
 
     def save_local_db(self):
         try:
@@ -110,7 +110,6 @@ class LZOApp:
             if d_zad:
                 try:
                     dt_zad = datetime.strptime(d_zad, "%Y-%m-%d")
-                    # Izračunavanje datuma isticanja na osnovu zadatog roka u mjesecima
                     dt_ist = dt_zad + timedelta(days=rok*30.4375)
                     item["datum_isticanja"] = dt_ist.strftime("%Y-%m-%d")
                     
@@ -187,7 +186,6 @@ class LZOApp:
                 if sheet == 'NAPOMENA': continue
                 df = pd.read_excel(file_path, sheet_name=sheet)
                 
-                # Popuni prazne spojene ćelije za radnike
                 emp_cols = [df.columns[0], df.columns[1], df.columns[2]]
                 df[emp_cols] = df[emp_cols].ffill()
 
@@ -260,7 +258,6 @@ class LZOApp:
             entry = tk.Entry(win, width=32)
             entry.grid(row=idx, column=1, padx=15, pady=5)
             
-            # Ako vršimo izmjenu, popuni vrijednosti
             if item:
                 entry.insert(0, str(item.get(key, "")))
             entries[key] = entry
@@ -288,7 +285,7 @@ class LZOApp:
                     messagebox.showerror("Greška", "Datum mora biti u formatu GGGG-MM-DD (npr. 2026-05-20)", parent=win)
                     return
 
-            if item: # Update
+            if item:
                 item["zaposleni"] = zaposleni
                 item["rm"] = entries["rm"].get().strip()
                 item["grad"] = entries["grad"].get().strip()
@@ -298,7 +295,7 @@ class LZOApp:
                 item["rok_mjeseci"] = rok
                 item["datum_zaduzenja"] = d_zad
                 item["napomena"] = entries["napomena"].get().strip()
-            else: # Insert
+            else:
                 new_id = max([x["id"] for x in self.data], default=0) + 1
                 self.data.append({
                     "id": new_id,
