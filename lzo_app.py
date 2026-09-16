@@ -1,167 +1,374 @@
+import os
+import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
+
+DB_FILE = "lzo_baza.json"
 
 class LZOApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Sistem za praćenje LZO i rokova zaduženja")
-        self.root.geometry("1200x680")
+        self.root.title("Sistem za praćenje LZO i rokova zaduženja v2.0")
+        self.root.geometry("1200x700")
 
-        self.df_all = pd.DataFrame()
-        self.df_current = pd.DataFrame()
+        self.data = []
+        self.create_widgets()
+        
+        # Automatsko učitavanje lokalne baze pri pokretanju
+        self.load_local_db()
 
-        self.setup_ui()
+    def create_widgets(self):
+        # --- Gornji kontrolni panel ---
+        top_frame = tk.Frame(self.root, pady=10, padx=10, bg="#f4f4f4")
+        top_frame.pack(fill=tk.X)
 
-    def setup_ui(self):
-        # Kontrolni panel na vrhu
-        top_frame = tk.LabelFrame(self.root, text=" Upravljanje podacima ", font=("Arial", 10, "bold"), padx=10, pady=10)
-        top_frame.pack(fill=tk.X, padx=10, pady=5)
+        btn_import = tk.Button(top_frame, text="Inicijalni uvoz iz Excel-a", command=self.import_excel, bg="#2b5797", fg="white", font=("Arial", 9, "bold"))
+        btn_import.pack(side=tk.LEFT, padx=5)
 
-        btn_load = tk.Button(top_frame, text="📁 Učitaj Excel fajl", command=self.load_excel, bg="#0056b3", fg="white", font=("Arial", 9, "bold"))
-        btn_load.pack(side=tk.LEFT, padx=5)
+        btn_add = tk.Button(top_frame, text="+ Novo zaduženje", command=self.open_add_dialog, bg="#107c41", fg="white", font=("Arial", 9, "bold"))
+        btn_add.pack(side=tk.LEFT, padx=5)
 
-        btn_alert = tk.Button(top_frame, text="⚠️ Provjeri istekle/kritične rokove", command=self.check_alerts, bg="#d9534f", fg="white", font=("Arial", 9, "bold"))
-        btn_alert.pack(side=tk.LEFT, padx=5)
+        btn_delete = tk.Button(top_frame, text="Stoši selektovano", command=self.delete_selected, bg="#a80000", fg="white", font=("Arial", 9))
+        btn_delete.pack(side=tk.LEFT, padx=5)
 
-        tk.Label(top_frame, text="Zaposleni:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(20, 5))
-        self.combo_emp = ttk.Combobox(top_frame, state="readonly", width=30)
-        self.combo_emp.pack(side=tk.LEFT, padx=5)
-        self.combo_emp.bind("<<ComboboxSelected>>", self.filter_by_employee)
+        tk.Label(top_frame, text="Filtriraj po radniku:", bg="#f4f4f4", font=("Arial", 10)).pack(side=tk.LEFT, padx=(20, 5))
+        self.combo_worker = ttk.Combobox(top_frame, state="readonly", width=28)
+        self.combo_worker.pack(side=tk.LEFT, padx=5)
+        self.combo_worker.bind("<<ComboboxSelected>>", self.filter_by_worker)
 
-        btn_export = tk.Button(top_frame, text="📄 Izvezi karton zaposlenog (Excel)", command=self.export_employee_report, bg="#28a745", fg="white", font=("Arial", 9, "bold"))
-        btn_export.pack(side=tk.LEFT, padx=5)
-
-        btn_reset = tk.Button(top_frame, text="🔄 Prikaži sve", command=self.reset_view)
+        btn_reset = tk.Button(top_frame, text="Prikaži sve", command=self.reset_filter)
         btn_reset.pack(side=tk.LEFT, padx=5)
 
-        # Tabela za prikaz (Treeview)
-        tree_frame = tk.Frame(self.root)
-        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        btn_export = tk.Button(top_frame, text="Izvezi karton radnika", command=self.export_worker_report, bg="#008a00", fg="white", font=("Arial", 9, "bold"))
+        btn_export.pack(side=tk.RIGHT, padx=5)
 
-        self.tree = ttk.Treeview(tree_frame, show="headings")
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
-        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        # --- Statusna traka ---
+        self.lbl_status = tk.Label(self.root, text="Inicijalizacija sistema...", font=("Arial", 10, "italic"), anchor="w", padx=15, py=4)
+        self.lbl_status.pack(fill=tk.X)
 
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        # --- Tabela ---
+        table_frame = tk.Frame(self.root)
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        cols = ("ID", "Zaposleni", "Radno mjesto", "Mjesto", "Oprema", "Količina", "J.M.", "Rok (mj)", "Zaduženo", "Ističe", "Preostalo dana", "Status", "Napomena")
+        self.tree = ttk.Treeview(table_frame, columns=cols, show="headings")
+
+        col_widths = {"ID": 40, "Zaposleni": 150, "Radno mjesto": 140, "Mjesto": 80, "Oprema": 160, "Količina": 55, "J.M.": 45, "Rok (mj)": 60, "Zaduženo": 85, "Ističe": 85, "Preostalo dana": 90, "Status": 85, "Napomena": 120}
+        for col in cols:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=col_widths.get(col, 100), anchor=tk.CENTER if col in ["ID", "Količina", "J.M.", "Rok (mj)", "Zaduženo", "Ističe", "Preostalo dana", "Status"] else tk.W)
+
+        # Sakrij ID kolonu vizuelno ali je zadrži za identifikaciju
+        self.tree.column("ID", width=0, stretch=False)
+
+        scrollbar_y = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar_x = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(yscroll=scrollbar_y.set, xscroll=scrollbar_x.set)
+
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.tree.pack(fill=tk.BOTH, expand=True)
 
-        # Formatiranje boja za upozorenja
-        self.tree.tag_configure('expired', background='#f8d7da')  # Crvena za istekle
-        self.tree.tag_configure('warning', background='#fff3cd')  # Žuta za rokove < 30 dana
+        # Oznake za obojene redove
+        self.tree.tag_configure("ISTEKLO", background="#ffc7ce", foreground="#9c0006")
+        self.tree.tag_configure("USKORO", background="#ffeb9c", foreground="#9c6500")
+        self.tree.tag_configure("VAŽEĆE", background="#c6efce", foreground="#006100")
 
-    def load_excel(self):
-        filepath = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
-        if not filepath:
+        # Event za dvoklik - Izmjena zapisa
+        self.tree.bind("<Double-1>", self.open_edit_dialog)
+
+    # --- Baza podataka i proračuni ---
+    def load_local_db(self):
+        if os.path.exists(DB_FILE):
+            try:
+                with open(DB_FILE, "r", encoding="utf-8") as f:
+                    self.data = json.load(f)
+                self.recalculate_and_refresh()
+            except Exception as e:
+                messagebox.showerror("Greška", f"Nije moguće učitati bazu: {e}")
+        else:
+            self.lbl_status.config(text="Lokalna baza nije pronađena. Možete učitati podatak iz Excel fajla.", fg="blue")
+
+    def save_local_db(self):
+        try:
+            with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            messagebox.showerror("Greška", f"Greška pri čuvanju baze: {e}")
+
+    def recalculate_and_refresh(self):
+        today = datetime.now()
+        expired_count = 0
+        warning_count = 0
+
+        for item in self.data:
+            rok = int(item.get("rok_mjeseci", 12) or 12)
+            d_zad = item.get("datum_zaduzenja", "")
+            
+            if d_zad:
+                try:
+                    dt_zad = datetime.strptime(d_zad, "%Y-%m-%d")
+                    # Izračunavanje datuma isticanja na osnovu zadatog roka u mjesecima
+                    dt_ist = dt_zad + timedelta(days=rok*30.4375)
+                    item["datum_isticanja"] = dt_ist.strftime("%Y-%m-%d")
+                    
+                    preostalo = (dt_ist - today).days
+                    item["preostalo_dana"] = preostalo
+                    
+                    if preostalo < 0:
+                        item["status"] = "ISTEKLO"
+                        expired_count += 1
+                    elif preostalo <= 30:
+                        item["status"] = "USKORO"
+                        warning_count += 1
+                    else:
+                        item["status"] = "VAŽEĆE"
+                except Exception:
+                    item["status"] = "GREŠKA"
+                    item["preostalo_dana"] = 0
+            else:
+                item["datum_isticanja"] = ""
+                item["preostalo_dana"] = "-"
+                item["status"] = "NEZADUŽENO"
+
+        self.save_local_db()
+        self.populate_worker_combo()
+        self.refresh_table(self.data)
+
+        msg = f"Baza učitana ({len(self.data)} stavki) | ISTEKLO: {expired_count} | ISTIČE USKORO (<=30 dana): {warning_count}"
+        self.lbl_status.config(text=msg, fg="#9c0006" if expired_count > 0 else "black")
+
+    def refresh_table(self, dataset):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        for row in dataset:
+            d_zad = datetime.strptime(row["datum_zaduzenja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if row.get("datum_zaduzenja") else ""
+            d_ist = datetime.strptime(row["datum_isticanja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if row.get("datum_isticanja") else ""
+
+            self.tree.insert("", tk.END, values=(
+                row.get("id"),
+                row.get("zaposleni", ""),
+                row.get("rm", ""),
+                row.get("grad", ""),
+                row.get("oprema", ""),
+                row.get("kolicina", 1),
+                row.get("jm", "KOM"),
+                row.get("rok_mjeseci", 12),
+                d_zad,
+                d_ist,
+                row.get("preostalo_dana", "-"),
+                row.get("status", ""),
+                row.get("napomena", "")
+            ), tags=(row.get("status", ""),))
+
+    def populate_worker_combo(self):
+        workers = sorted(list(set(row["zaposleni"] for row in self.data if row.get("zaposleni"))))
+        self.combo_worker['values'] = workers
+
+    # --- Inicijalni uvoz iz Excel-a ---
+    def import_excel(self):
+        if self.data:
+            if not messagebox.askyesno("Potvrda", "Već postoje podaci u bazi. Uvozom iz Excel-a ćete zamijeniti trenutne podatke. Nastaviti?"):
+                return
+
+        file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
+        if not file_path:
             return
 
         try:
-            excel_file = pd.ExcelFile(filepath)
-            frames = []
-            
-            # Učitavanje svih sheet-ova
-            for sheet_name in excel_file.sheet_names:
-                df_sheet = pd.read_excel(filepath, sheet_name=sheet_name)
-                # Ujednačavanje naziva kolona po pozicijama A-M
-                if df_sheet.shape[1] >= 13:
-                    df_sheet = df_sheet.iloc[:, :13]
-                    df_sheet.columns = [
-                        "Ime i prezime", "Radno mjesto", "Grad", "Veličina odjeće",
-                        "Veličina obuće", "Oprema", "Jedinica mjere", "Količina",
-                        "Rok (mjeseci)", "Datum zadnjeg zaduženja", "Datum isticanja",
-                        "Preostalo dana", "Napomena"
-                    ]
-                    frames.append(df_sheet)
+            xls = pd.ExcelFile(file_path)
+            new_data = []
+            idx = 1
 
-            if frames:
-                self.df_all = pd.concat(frames, ignore_index=True)
-                self.df_all.dropna(subset=["Ime i prezime", "Oprema"], inplace=True)
+            for sheet in xls.sheet_names:
+                if sheet == 'NAPOMENA': continue
+                df = pd.read_excel(file_path, sheet_name=sheet)
                 
-                # Izračunavanje preostalih dana u odnosu na današnji datum
-                self.df_all["Datum isticanja"] = pd.to_datetime(self.df_all["Datum isticanja"], errors='coerce')
-                today = pd.Timestamp.now().normalize()
-                self.df_all["Preostalo dana"] = (self.df_all["Datum isticanja"] - today).dt.days
+                # Popuni prazne spojene ćelije za radnike
+                emp_cols = [df.columns[0], df.columns[1], df.columns[2]]
+                df[emp_cols] = df[emp_cols].ffill()
 
-                self.df_current = self.df_all.copy()
-                self.update_combobox()
-                self.display_data(self.df_current)
-                messagebox.showinfo("Uspjeh", f"Uspješno učitano {len(self.df_all)} zapisa iz svih radnih listova.")
+                for _, r in df.iterrows():
+                    zaposleni = str(r.iloc[0]).strip() if pd.notnull(r.iloc[0]) else ""
+                    if not zaposleni or zaposleni == "nan": continue
+
+                    d_zad = ""
+                    if pd.notnull(r.iloc[9]):
+                        try:
+                            d_zad = pd.to_datetime(r.iloc[9]).strftime("%Y-%m-%d")
+                        except: pass
+
+                    new_data.append({
+                        "id": idx,
+                        "zaposleni": zaposleni,
+                        "rm": str(r.iloc[1]).strip() if pd.notnull(r.iloc[1]) else "",
+                        "grad": str(r.iloc[2]).strip() if pd.notnull(r.iloc[2]) else "",
+                        "vel_odjeca": str(r.iloc[3]).strip() if pd.notnull(r.iloc[3]) else "",
+                        "vel_obuca": str(r.iloc[4]).strip() if pd.notnull(r.iloc[4]) else "",
+                        "oprema": str(r.iloc[5]).strip() if pd.notnull(r.iloc[5]) else "",
+                        "jm": str(r.iloc[6]).strip() if pd.notnull(r.iloc[6]) else "KOM",
+                        "kolicina": int(r.iloc[7]) if pd.notnull(r.iloc[7]) and str(r.iloc[7]).isdigit() else 1,
+                        "rok_mjeseci": int(r.iloc[8]) if pd.notnull(r.iloc[8]) and str(r.iloc[8]).isdigit() else 12,
+                        "datum_zaduzenja": d_zad,
+                        "napomena": str(r.iloc[12]).strip() if len(r) > 12 and pd.notnull(r.iloc[12]) and str(r.iloc[12]) != "nan" else ""
+                    })
+                    idx += 1
+
+            self.data = new_data
+            self.recalculate_and_refresh()
+            messagebox.showinfo("Uspjeh", "Podaci su uspješno uvezeni i sačuvani u lokalnu bazu!")
         except Exception as e:
-            messagebox.showerror("Greška", f"Greška prilikom otvaranja fajla:\n{str(e)}")
+            messagebox.showerror("Greška pri uvozu", f"Nije moguće pročitati Excel fajl:\n{e}")
 
-    def update_combobox(self):
-        employees = sorted(list(self.df_all["Ime i prezime"].dropna().unique()))
-        self.combo_emp["values"] = employees
+    # --- Dijalozi za dodavanje / izmjenu ---
+    def open_add_dialog(self):
+        self.show_edit_window(title="Novo zaduženje", item=None)
 
-    def display_data(self, df):
-        self.tree.delete(*self.tree.get_children())
-        self.tree["columns"] = list(df.columns)
+    def open_edit_dialog(self, event):
+        selected = self.tree.selection()
+        if not selected: return
+        item_id = self.tree.item(selected[0])["values"][0]
+        
+        target_item = next((x for x in self.data if x["id"] == item_id), None)
+        if target_item:
+            self.show_edit_window(title="Izmjena zaduženja", item=target_item)
 
-        for col in df.columns:
-            self.tree.heading(col, text=col)
-            self.tree.column(col, width=110, anchor=tk.CENTER)
+    def show_edit_window(self, title, item=None):
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.geometry("450x520")
+        win.grab_set()
 
-        for _, row in df.iterrows():
-            vals = list(row)
-            # Formatiranje datuma za lepši prikaz
-            if pd.notnull(vals[9]): vals[9] = pd.to_datetime(vals[9]).strftime('%d.%m.%Y.')
-            if pd.notnull(vals[10]): vals[10] = pd.to_datetime(vals[10]).strftime('%d.%m.%Y.')
+        fields = [
+            ("Ime i Prezime:", "zaposleni"),
+            ("Radno Mjesto:", "rm"),
+            ("Grad / Mjesto:", "grad"),
+            ("Naziv opreme:", "oprema"),
+            ("Količina:", "kolicina"),
+            ("Jedinica mjere:", "jm"),
+            ("Rok (u mjesecima):", "rok_mjeseci"),
+            ("Datum zaduženja (GGGG-MM-DD):", "datum_zaduzenja"),
+            ("Napomena:", "napomena")
+        ]
+
+        entries = {}
+        for idx, (label_text, key) in enumerate(fields):
+            tk.Label(win, text=label_text, font=("Arial", 9, "bold")).grid(row=idx, column=0, sticky="w", padx=15, pady=5)
+            entry = tk.Entry(win, width=32)
+            entry.grid(row=idx, column=1, padx=15, pady=5)
             
-            days_left = row["Preostalo dana"]
-            tag = ""
-            if pd.notnull(days_left):
-                if days_left < 0:
-                    tag = "expired"
-                elif days_left <= 30:
-                    tag = "warning"
+            # Ako vršimo izmjenu, popuni vrijednosti
+            if item:
+                entry.insert(0, str(item.get(key, "")))
+            entries[key] = entry
 
-            self.tree.insert("", tk.END, values=vals, tags=(tag,))
+        def save():
+            zaposleni = entries["zaposleni"].get().strip()
+            oprema = entries["oprema"].get().strip()
+            
+            if not zaposleni or not oprema:
+                messagebox.showerror("Greška", "Ime zaposlenog i naziv opreme su obavezni!", parent=win)
+                return
 
-    def check_alerts(self):
-        if self.df_all.empty:
+            try:
+                rok = int(entries["rok_mjeseci"].get().strip() or 12)
+                kol = int(entries["kolicina"].get().strip() or 1)
+            except ValueError:
+                messagebox.showerror("Greška", "Količina i Rok moraju biti brojevi!", parent=win)
+                return
+
+            d_zad = entries["datum_zaduzenja"].get().strip()
+            if d_zad:
+                try:
+                    datetime.strptime(d_zad, "%Y-%m-%d")
+                except ValueError:
+                    messagebox.showerror("Greška", "Datum mora biti u formatu GGGG-MM-DD (npr. 2026-05-20)", parent=win)
+                    return
+
+            if item: # Update
+                item["zaposleni"] = zaposleni
+                item["rm"] = entries["rm"].get().strip()
+                item["grad"] = entries["grad"].get().strip()
+                item["oprema"] = oprema
+                item["kolicina"] = kol
+                item["jm"] = entries["jm"].get().strip()
+                item["rok_mjeseci"] = rok
+                item["datum_zaduzenja"] = d_zad
+                item["napomena"] = entries["napomena"].get().strip()
+            else: # Insert
+                new_id = max([x["id"] for x in self.data], default=0) + 1
+                self.data.append({
+                    "id": new_id,
+                    "zaposleni": zaposleni,
+                    "rm": entries["rm"].get().strip(),
+                    "grad": entries["grad"].get().strip(),
+                    "oprema": oprema,
+                    "kolicina": kol,
+                    "jm": entries["jm"].get().strip(),
+                    "rok_mjeseci": rok,
+                    "datum_zaduzenja": d_zad,
+                    "napomena": entries["napomena"].get().strip()
+                })
+
+            win.destroy()
+            self.recalculate_and_refresh()
+            messagebox.showinfo("Uspeh", "Podaci su sačuvani!")
+
+        btn_save = tk.Button(win, text="Sačuvaj promjene", command=save, bg="#107c41", fg="white", font=("Arial", 10, "bold"), pady=5)
+        btn_save.grid(row=len(fields), column=0, columnspan=2, pady=20)
+
+    def delete_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Upozorenje", "Izaberite zapis iz tabele koji želite obrisati.")
             return
-        critical_df = self.df_all[self.df_all["Preostalo dana"] <= 30]
-        self.display_data(critical_df)
-        
-        expired_count = len(self.df_all[self.df_all["Preostalo dana"] < 0])
-        warning_count = len(self.df_all[(self.df_all["Preostalo dana"] >= 0) & (self.df_all["Preostalo dana"] <= 30)])
-        
-        messagebox.showwarning(
-            "Izvještaj o rokovima", 
-            f"Istekli rokovi: {expired_count} kom/pari\nRokovi koji ističu u narednih 30 dana: {warning_count} kom/pari"
-        )
 
-    def filter_by_employee(self, event=None):
-        emp_name = self.combo_emp.get()
-        if emp_name and not self.df_all.empty:
-            filtered_df = self.df_all[self.df_all["Ime i prezime"] == emp_name]
-            self.df_current = filtered_df
-            self.display_data(filtered_df)
+        item_id = self.tree.item(selected[0])["values"][0]
+        if messagebox.askyesno("Potvrda", "Da li ste sigurni da želite obrisati izabrano zaduženje?"):
+            self.data = [x for x in self.data if x["id"] != item_id]
+            self.recalculate_and_refresh()
 
-    def reset_view(self):
-        if not self.df_all.empty:
-            self.df_current = self.df_all.copy()
-            self.combo_emp.set('')
-            self.display_data(self.df_all)
+    # --- Filtriranje i Izvoz ---
+    def filter_by_worker(self, event=None):
+        worker = self.combo_worker.get()
+        if worker:
+            filtered = [x for x in self.data if x["zaposleni"] == worker]
+            self.refresh_table(filtered)
 
-    def export_employee_report(self):
-        emp_name = self.combo_emp.get()
-        if not emp_name:
-            messagebox.showwarning("Upozorenje", "Molimo izaberite zaposlenog iz padajućeg menija!")
+    def reset_filter(self):
+        self.combo_worker.set("")
+        self.refresh_table(self.data)
+
+    def export_worker_report(self):
+        worker = self.combo_worker.get()
+        if not worker:
+            messagebox.showwarning("Upozorenje", "Izaberite radnika iz padajućeg menija za izvoz kartona.")
             return
 
-        emp_df = self.df_all[self.df_all["Ime i prezime"] == emp_name]
+        filtered = [x for x in self.data if x["zaposleni"] == worker]
+        df_exp = pd.DataFrame(filtered)
+
         save_path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
-            initialfile=f"Karton_LZO_{emp_name.replace(' ', '_')}.xlsx",
-            filetypes=[("Excel Files", "*.xlsx")]
+            filetypes=[("Excel Files", "*.xlsx")],
+            initialfile=f"Karton_LZO_{worker.replace(' ', '_')}.xlsx"
         )
         if save_path:
-            emp_df.to_excel(save_path, index=False)
-            messagebox.showinfo("Uspjeh", f"Karton zaduženja za {emp_name} je uspješno sačuvan.")
+            try:
+                cols_map = {
+                    "zaposleni": "Ime i prezime", "rm": "Radno mjesto", "grad": "Mjesto",
+                    "oprema": "Oprema", "kolicina": "Količina", "jm": "J.M.",
+                    "rok_mjeseci": "Rok (mjeseci)", "datum_zaduzenja": "Datum zaduženja",
+                    "datum_isticanja": "Datum isticanja", "status": "Status", "napomena": "Napomena"
+                }
+                df_exp = df_exp[list(cols_map.keys())].rename(columns=cols_map)
+                df_exp.to_excel(save_path, index=False)
+                messagebox.showinfo("Uspjeh", f"Karton za radnika {worker} je sačuvan!")
+            except Exception as e:
+                messagebox.showerror("Greška", f"Nije moguće izvesti fajl: {e}")
 
 if __name__ == "__main__":
     root = tk.Tk()
