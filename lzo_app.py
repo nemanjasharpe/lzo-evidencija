@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as ReportLabImage
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as ReportLabImage, KeepTogether
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
@@ -29,6 +29,13 @@ except ImportError:
     REPORTLAB_AVAILABLE = False
 
 DB_FILE = "lzo_baza.json"
+
+def get_cedis_logo_path():
+    """Pronalazi lokalnu sliku CEDIS logotipa ako postoji u radnom direktorijumu."""
+    for name in ["cedis_logo.png", "logo.png", "cedis_logo.jpg", "logo.jpg", "CEDIS_logo.png", "CEDIS.png"]:
+        if os.path.exists(name):
+            return name
+    return None
 
 def get_unicode_font_name():
     """Registruje font sa podrškom za regionalna slova (č, š, ć, đ, ž) u PDF-u."""
@@ -55,11 +62,19 @@ def get_unicode_font_name():
                 pass
     return 'Helvetica'
 
+def sort_size_key(size_str):
+    """Pomoćna funkcija za prirodno sortiranje veličina (brojevi pa tekstove)."""
+    try:
+        return (0, float(size_str.replace(',', '.')))
+    except ValueError:
+        order = {"XS": 1, "S": 2, "M": 3, "L": 4, "XL": 5, "XXL": 6, "3XL": 7, "4XL": 8, "5XL": 9}
+        return (1, order.get(size_str.upper(), size_str))
+
 class LZOApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Sistem za praćenje LZO i rokova zaduženja v5.0")
-        self.root.geometry("1420x820")
+        self.root.title("CEDIS - Sistem za praćenje LZO i rokova zaduženja v6.0")
+        self.root.geometry("1450x850")
         self.root.configure(bg="#F8FAFC")
 
         self.data = []
@@ -101,7 +116,7 @@ class LZOApp:
     def push_undo_state(self):
         """Pamti trenutno stanje baze prije bilo kakve izmjene."""
         self.history.append(copy.deepcopy(self.data))
-        if len(self.history) > 20: # Ograničavamo na 20 koraka
+        if len(self.history) > 20:
             self.history.pop(0)
         self.btn_undo.config(state=tk.NORMAL)
 
@@ -121,28 +136,32 @@ class LZOApp:
         top_frame = tk.Frame(self.root, pady=10, padx=15, bg="#1E293B")
         top_frame.pack(fill=tk.X)
 
-        tk.Label(top_frame, text="🛡️ LZO Sistem", font=("Segoe UI", 12, "bold"), fg="#F8FAFC", bg="#1E293B").pack(side=tk.LEFT, padx=(0, 15))
+        tk.Label(top_frame, text="⚡ CEDIS LZO Sistem", font=("Segoe UI", 12, "bold"), fg="#F8FAFC", bg="#1E293B").pack(side=tk.LEFT, padx=(0, 15))
 
         btn_import = tk.Button(top_frame, text="📥 Uvoz iz Excel-a", command=self.import_excel, bg="#2563EB", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
-        btn_import.pack(side=tk.LEFT, padx=4)
+        btn_import.pack(side=tk.LEFT, padx=3)
 
         btn_add = tk.Button(top_frame, text="+ Novo zaduženje", command=self.open_add_dialog, bg="#059669", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
-        btn_add.pack(side=tk.LEFT, padx=4)
+        btn_add.pack(side=tk.LEFT, padx=3)
 
         btn_edit = tk.Button(top_frame, text="✏️ Izmijeni", command=self.open_edit_dialog, bg="#D97706", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
-        btn_edit.pack(side=tk.LEFT, padx=4)
+        btn_edit.pack(side=tk.LEFT, padx=3)
 
         btn_delete = tk.Button(top_frame, text="🗑️ Obriši selektovano", command=self.delete_selected, bg="#DC2626", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
-        btn_delete.pack(side=tk.LEFT, padx=4)
+        btn_delete.pack(side=tk.LEFT, padx=3)
 
-        self.btn_undo = tk.Button(top_frame, text="↩️ Poništi (Undo)", command=self.undo, bg="#475569", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2", state=tk.DISABLED)
-        self.btn_undo.pack(side=tk.LEFT, padx=(15, 4))
+        self.btn_undo = tk.Button(top_frame, text="↩️ Undo", command=self.undo, bg="#475569", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=8, pady=4, cursor="hand2", state=tk.DISABLED)
+        self.btn_undo.pack(side=tk.LEFT, padx=(10, 3))
+
+        # Novo dugme za Trebovanje / Specifikaciju opreme
+        btn_trebovanje = tk.Button(top_frame, text="📋 Trebovanje i Specifikacija", command=self.open_trebovanje_dialog, bg="#7C3AED", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
+        btn_trebovanje.pack(side=tk.LEFT, padx=(15, 3))
 
         btn_export_pdf = tk.Button(top_frame, text="📄 Izvezi PDF (+ %)", command=self.export_pdf_report, bg="#B91C1C", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
-        btn_export_pdf.pack(side=tk.RIGHT, padx=4)
+        btn_export_pdf.pack(side=tk.RIGHT, padx=3)
 
         btn_export_excel = tk.Button(top_frame, text="📊 Izvezi Excel (+ %)", command=self.export_excel_report, bg="#16A34A", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
-        btn_export_excel.pack(side=tk.RIGHT, padx=4)
+        btn_export_excel.pack(side=tk.RIGHT, padx=3)
 
         # Sekcija za filtriranje
         filter_frame = tk.LabelFrame(self.root, text=" Pretraga i Filtriranje ", font=("Segoe UI", 9, "bold"), padx=12, pady=8, bg="#FFFFFF", fg="#1E293B", relief="solid", bd=1)
@@ -305,7 +324,7 @@ class LZOApp:
         p_warn = (warning_count / total * 100) if total else 0
         p_val = (valid_count / total * 100) if total else 0
 
-        msg = f"Ukupno: {total} | Prikazano: {len(self.current_filtered_data)} | ISTEKLO: {expired_count} ({p_exp:.1f}%) | USKORO: {warning_count} ({p_warn:.1f}%) | VAŽEĆE: {valid_count} ({p_val:.1f}%)"
+        msg = f"Ukupno stavki u bazi: {total} | Prikazano: {len(self.current_filtered_data)} | ISTEKLO: {expired_count} ({p_exp:.1f}%) | USKORO: {warning_count} ({p_warn:.1f}%) | VAŽEĆE: {valid_count} ({p_val:.1f}%)"
         self.lbl_status.config(text=msg, fg="#991B1B" if expired_count > 0 else "#1E293B")
 
     def update_filter_dropdowns(self):
@@ -437,23 +456,573 @@ class LZOApp:
 
         self.refresh_table(self.current_filtered_data)
 
+    def import_excel(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
+        if not file_path:
+            return
+
+        try:
+            df = pd.read_excel(file_path)
+            self.push_undo_state()
+
+            new_data = []
+            max_id = max([r.get("id", 0) for r in self.data], default=0)
+
+            for idx, row in df.iterrows():
+                item = {
+                    "id": max_id + idx + 1,
+                    "zaposleni": str(row.get("Zaposleni", row.get("Ime i prezime", ""))).strip(),
+                    "rm": str(row.get("Radno mjesto", "")).strip() if pd.notnull(row.get("Radno mjesto")) else "",
+                    "org_jedinica": str(row.get("Org. jedinica", row.get("Organizaciona jedinica", ""))).strip() if pd.notnull(row.get("Org. jedinica")) else "",
+                    "grad": str(row.get("Mjesto", row.get("Grad", ""))).strip() if pd.notnull(row.get("Mjesto")) else "",
+                    "vel_odjeca": str(row.get("Vel. odjeća", row.get("Veličina odjeće", ""))).strip() if pd.notnull(row.get("Vel. odjeća")) else "",
+                    "vel_obuca": str(row.get("Vel. obuća", row.get("Veličina obuće", ""))).strip() if pd.notnull(row.get("Vel. obuća")) else "",
+                    "oprema": str(row.get("Oprema", row.get("Naziv opreme", ""))).strip() if pd.notnull(row.get("Oprema")) else "",
+                    "jm": str(row.get("J.M.", row.get("Jedinica mjere", "KOM"))).strip() if pd.notnull(row.get("J.M.")) else "KOM",
+                    "normativ": int(row.get("Normativ", 1)) if pd.notnull(row.get("Normativ")) else 1,
+                    "rok_mjeseci": int(row.get("Rok (mj)", row.get("Rok mjeseci", 12))) if pd.notnull(row.get("Rok (mj)")) else 12,
+                    "izdata_kol": int(row.get("Izdata kol.", row.get("Količina", 1))) if pd.notnull(row.get("Izdata kol.")) else 1,
+                    "datum_zaduzenja": str(row.get("Datum zaduženja", row.get("Zaduženo", ""))).split(" ")[0] if pd.notnull(row.get("Datum zaduženja")) else "",
+                    "napomena": str(row.get("Napomena", "")).strip() if pd.notnull(row.get("Napomena")) else ""
+                }
+                if item["zaposleni"] and item["oprema"]:
+                    new_data.append(item)
+
+            self.data.extend(new_data)
+            self.recalculate_and_refresh()
+            messagebox.showinfo("Uspjeh", f"Uspješno uvezeno {len(new_data)} novih zapisa iz Excel fajla!")
+        except Exception as e:
+            messagebox.showerror("Greška", f"Nije moguće uvesti Excel fajl: {e}")
+
+    def open_add_dialog(self):
+        self.open_record_dialog(title="Dodaj novo zaduženje LZO")
+
+    def open_edit_dialog(self, event=None):
+        selected_item = self.tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Upozorenje", "Selektujte red u tabeli koji želite izmijeniti.")
+            return
+
+        item_values = self.tree.item(selected_item[0], "values")
+        rec_id = int(item_values[0])
+        record = next((r for r in self.data if r.get("id") == rec_id), None)
+
+        if record:
+            self.open_record_dialog(title="Izmijeni zaduženje LZO", record=record)
+
+    def open_record_dialog(self, title, record=None):
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title)
+        dlg.geometry("520x620")
+        dlg.configure(bg="#F8FAFC")
+        dlg.grab_set()
+
+        fields = [
+            ("Zaposleni (Ime i Prezime)*:", "zaposleni"),
+            ("Radno mjesto:", "rm"),
+            ("Organizaciona jedinica:", "org_jedinica"),
+            ("Mjesto / Grad:", "grad"),
+            ("Veličina odjeće:", "vel_odjeca"),
+            ("Veličina obuće:", "vel_obuca"),
+            ("Naziv opreme*:", "oprema"),
+            ("Jedinica mjere (J.M.):", "jm"),
+            ("Normativ (količina):", "normativ"),
+            ("Rok trajanja (u mjesecima)*:", "rok_mjeseci"),
+            ("Izdata količina*:", "izdata_kol"),
+            ("Datum zaduženja (GGGG-MM-DD)*:", "datum_zaduzenja"),
+            ("Napomena:", "napomena")
+        ]
+
+        entries = {}
+        for idx, (label_text, key) in enumerate(fields):
+            lbl = tk.Label(dlg, text=label_text, bg="#F8FAFC", font=("Segoe UI", 9, "bold" if "*" in label_text else "normal"), fg="#1E293B")
+            lbl.grid(row=idx, column=0, sticky="w", padx=15, pady=4)
+
+            ent = tk.Entry(dlg, font=("Segoe UI", 9), width=32)
+            ent.grid(row=idx, column=1, padx=15, pady=4)
+
+            val = str(record.get(key, "")) if record else ""
+            if not record and key == "jm": val = "KOM"
+            if not record and key == "normativ": val = "1"
+            if not record and key == "rok_mjeseci": val = "12"
+            if not record and key == "izdata_kol": val = "1"
+            if not record and key == "datum_zaduzenja": val = datetime.now().strftime("%Y-%m-%d")
+
+            ent.insert(0, val)
+            entries[key] = ent
+
+        def save_record():
+            if not entries["zaposleni"].get().strip() or not entries["oprema"].get().strip() or not entries["datum_zaduzenja"].get().strip():
+                messagebox.showerror("Greška", "Polja Zaposleni, Oprema i Datum zaduženja su obavezna!")
+                return
+
+            try:
+                dt_str = entries["datum_zaduzenja"].get().strip()
+                datetime.strptime(dt_str, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Greška", "Datum zaduženja mora biti u formatu GGGG-MM-DD (npr. 2026-05-15).")
+                return
+
+            self.push_undo_state()
+
+            if record:
+                rec = record
+            else:
+                max_id = max([r.get("id", 0) for r in self.data], default=0)
+                rec = {"id": max_id + 1}
+                self.data.append(rec)
+
+            rec["zaposleni"] = entries["zaposleni"].get().strip()
+            rec["rm"] = entries["rm"].get().strip()
+            rec["org_jedinica"] = entries["org_jedinica"].get().strip()
+            rec["grad"] = entries["grad"].get().strip()
+            rec["vel_odjeca"] = entries["vel_odjeca"].get().strip()
+            rec["vel_obuca"] = entries["vel_obuca"].get().strip()
+            rec["oprema"] = entries["oprema"].get().strip()
+            rec["jm"] = entries["jm"].get().strip() or "KOM"
+            rec["normativ"] = int(entries["normativ"].get().strip() or 1)
+            rec["rok_mjeseci"] = int(entries["rok_mjeseci"].get().strip() or 12)
+            rec["izdata_kol"] = int(entries["izdata_kol"].get().strip() or 1)
+            rec["datum_zaduzenja"] = dt_str
+            rec["napomena"] = entries["napomena"].get().strip()
+
+            dlg.destroy()
+            self.recalculate_and_refresh()
+            messagebox.showinfo("Uspjeh", "Podaci uspješno sačuvani!")
+
+        btn_save = tk.Button(dlg, text="💾 Sačuvaj podatak", command=save_record, bg="#059669", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", pady=6)
+        btn_save.grid(row=len(fields), column=0, columnspan=2, pady=15, padx=15, sticky="ew")
+
+    def delete_selected(self):
+        selected_items = self.tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Upozorenje", "Selektujte bar jedan red u tabeli za brisanje.")
+            return
+
+        if messagebox.askyesno("Potvrda brisanja", f"Da li ste sigurni da želite obrisati selektovane stavke ({len(selected_items)})?"):
+            self.push_undo_state()
+            ids_to_del = [int(self.tree.item(item, "values")[0]) for item in selected_items]
+            self.data = [r for r in self.data if r.get("id") not in ids_to_del]
+            self.recalculate_and_refresh()
+            messagebox.showinfo("Uspjeh", "Selektovane stavke su uspješno obrisane.")
+
+    # ------------------- TREBOVANJE / SPECIFIKACIJA OPREME -------------------
+
+    def generate_trebovanje_data(self, target_year, include_expired, org_unit="SVE ORG. JEDINICE"):
+        """Filtrira opremu i pravi agregiranu specifikaciju po artiklima, veličinama i količinama."""
+        summary = {}
+        filtered_items = []
+
+        for item in self.data:
+            if org_unit != "SVE ORG. JEDINICE" and item.get("org_jedinica") != org_unit:
+                continue
+
+            d_ist = item.get("datum_isticanja", "")
+            status = item.get("status", "")
+
+            is_match = False
+            if d_ist:
+                try:
+                    dt_ist = datetime.strptime(d_ist, "%Y-%m-%d")
+                    if dt_ist.year == target_year:
+                        is_match = True
+                    elif include_expired and (status == "ISTEKLO" or dt_ist.year < target_year):
+                        is_match = True
+                except Exception:
+                    pass
+            elif include_expired and status == "ISTEKLO":
+                is_match = True
+
+            if is_match:
+                filtered_items.append(item)
+                eq_name = item.get("oprema", "Nedefinisana oprema").strip()
+                qty = int(item.get("normativ", 1) or item.get("izdata_kol", 1) or 1)
+                jm = item.get("jm", "KOM").strip()
+
+                vel_odj = str(item.get("vel_odjeca", "")).strip()
+                vel_obu = str(item.get("vel_obuca", "")).strip()
+
+                if vel_obu and vel_obu != "-" and vel_obu.lower() != "nan":
+                    size = vel_obu
+                elif vel_odj and vel_odj != "-" and vel_odj.lower() != "nan":
+                    size = vel_odj
+                else:
+                    size = "Standard"
+
+                if eq_name not in summary:
+                    summary[eq_name] = {
+                        "jm": jm,
+                        "sizes": {},
+                        "total_qty": 0,
+                        "items": []
+                    }
+
+                summary[eq_name]["sizes"][size] = summary[eq_name]["sizes"].get(size, 0) + qty
+                summary[eq_name]["total_qty"] += qty
+                summary[eq_name]["items"].append(item)
+
+        return summary, filtered_items
+
+    def open_trebovanje_dialog(self):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("📋 CEDIS - Izrada Trebovanja i Specifikacije LZO")
+        dlg.geometry("980x680")
+        dlg.configure(bg="#F8FAFC")
+        dlg.grab_set()
+
+        top_ctrl = tk.LabelFrame(dlg, text=" Parametri trebovanja ", font=("Segoe UI", 9, "bold"), bg="#FFFFFF", padx=12, pady=8)
+        top_ctrl.pack(fill=tk.X, padx=15, pady=10)
+
+        tk.Label(top_ctrl, text="Za godinu:", bg="#FFFFFF", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, padx=5, sticky="w")
+        current_year = datetime.now().year
+        year_values = [str(y) for y in range(current_year - 2, current_year + 6)]
+        combo_year = ttk.Combobox(top_ctrl, values=year_values, state="readonly", width=8)
+        combo_year.set(str(current_year))
+        combo_year.grid(row=0, column=1, padx=5)
+
+        mode_var = tk.StringVar(value="YEAR_ONLY")
+        rb1 = tk.Radiobutton(top_ctrl, text="Samo oprema koja ističe u izabranoj godini", variable=mode_var, value="YEAR_ONLY", bg="#FFFFFF", font=("Segoe UI", 9))
+        rb1.grid(row=0, column=2, padx=10)
+
+        rb2 = tk.Radiobutton(top_ctrl, text="Izabrana godina + SVA prethodno istekla oprema", variable=mode_var, value="WITH_EXPIRED", bg="#FFFFFF", font=("Segoe UI", 9, "bold"), fg="#B91C1C")
+        rb2.grid(row=0, column=3, padx=10)
+
+        tk.Label(top_ctrl, text="Org. jedinica:", bg="#FFFFFF", font=("Segoe UI", 9)).grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        orgs = sorted(list(set(r.get("org_jedinica", "") for r in self.data if r.get("org_jedinica"))))
+        combo_org = ttk.Combobox(top_ctrl, values=["SVE ORG. JEDINICE"] + orgs, state="readonly", width=25)
+        combo_org.current(0)
+        combo_org.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="w")
+
+        # Prikaz specifikacije u tabeli
+        tree_frame = tk.Frame(dlg, bg="#F8FAFC")
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+
+        cols_spec = ("Oprema", "J.M.", "Specifikacija po veličinama", "Ukupno količina")
+        tree_spec = ttk.Treeview(tree_frame, columns=cols_spec, show="headings")
+        tree_spec.heading("Oprema", text="Naziv opreme / Artikal")
+        tree_spec.heading("J.M.", text="J.M.")
+        tree_spec.heading("Specifikacija po veličinama", text="Razrađene veličine i količine")
+        tree_spec.heading("Ukupno količina", text="Ukupna količina za trebovanje")
+
+        tree_spec.column("Oprema", width=220, anchor=tk.W)
+        tree_spec.column("J.M.", width=60, anchor=tk.CENTER)
+        tree_spec.column("Specifikacija po veličinama", width=480, anchor=tk.W)
+        tree_spec.column("Ukupno količina", width=140, anchor=tk.CENTER)
+
+        sc_y = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree_spec.yview)
+        tree_spec.configure(yscroll=sc_y.set)
+        sc_y.pack(side=tk.RIGHT, fill=tk.Y)
+        tree_spec.pack(fill=tk.BOTH, expand=True)
+
+        lbl_summary_info = tk.Label(dlg, text="", font=("Segoe UI", 9, "bold"), bg="#F8FAFC", fg="#1E293B", anchor="w")
+        lbl_summary_info.pack(fill=tk.X, padx=15, pady=4)
+
+        def refresh_trebovanje_preview():
+            for item in tree_spec.get_children():
+                tree_spec.delete(item)
+
+            yr = int(combo_year.get())
+            inc_exp = (mode_var.get() == "WITH_EXPIRED")
+            org_sel = combo_org.get()
+
+            summary, filtered = self.generate_trebovanje_data(yr, inc_exp, org_sel)
+
+            grand_total_qty = 0
+            for eq_name, details in sorted(summary.items()):
+                sizes_dict = details["sizes"]
+                sorted_sizes = sorted(sizes_dict.keys(), key=sort_size_key)
+                size_str = ", ".join([f"vel. {s}: {sizes_dict[s]} {details['jm']}" for s in sorted_sizes])
+
+                tree_spec.insert("", tk.END, values=(
+                    eq_name,
+                    details["jm"],
+                    size_str,
+                    f"{details['total_qty']} {details['jm']}"
+                ))
+                grand_total_qty += details["total_qty"]
+
+            lbl_summary_info.config(text=f"📊 Ukupno artikala za trebovanje: {len(summary)} vrst(a) | Ukupna količina opreme: {grand_total_qty} kom/par | Obuhvaćeno radnika: {len(filtered)}")
+
+        btn_calc = tk.Button(top_ctrl, text="🔄 Osvježi prikaz", command=refresh_trebovanje_preview, bg="#2563EB", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=2)
+        btn_calc.grid(row=1, column=3, padx=10, pady=5)
+
+        # Dugmad za izvoz Trebovanja
+        bot_frame = tk.Frame(dlg, bg="#F8FAFC", pady=10)
+        bot_frame.pack(fill=tk.X, padx=15)
+
+        def export_treb_excel():
+            yr = int(combo_year.get())
+            inc_exp = (mode_var.get() == "WITH_EXPIRED")
+            org_sel = combo_org.get()
+            summary, filtered = self.generate_trebovanje_data(yr, inc_exp, org_sel)
+            self.export_trebovanje_excel_file(yr, inc_exp, org_sel, summary, filtered)
+
+        def export_treb_pdf():
+            yr = int(combo_year.get())
+            inc_exp = (mode_var.get() == "WITH_EXPIRED")
+            org_sel = combo_org.get()
+            summary, filtered = self.generate_trebovanje_data(yr, inc_exp, org_sel)
+            self.export_trebovanje_pdf_file(yr, inc_exp, org_sel, summary, filtered)
+
+        btn_exp_ex = tk.Button(bot_frame, text="📊 Izvezi Trebovanje u Excel", command=export_treb_excel, bg="#16A34A", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", padx=15, pady=6)
+        btn_exp_ex.pack(side=tk.LEFT, padx=5)
+
+        btn_exp_pdf = tk.Button(bot_frame, text="📄 Izvezi Trebovanje u PDF", command=export_treb_pdf, bg="#B91C1C", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", padx=15, pady=6)
+        btn_exp_pdf.pack(side=tk.LEFT, padx=5)
+
+        refresh_trebovanje_preview()
+
+    def export_trebovanje_excel_file(self, year, include_expired, org_unit, summary, filtered):
+        if not summary:
+            messagebox.showwarning("Upozorenje", "Nema podataka za trebovanje po izabranim kriterijumima.")
+            return
+
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel Files", "*.xlsx")],
+            initialfile=f"Trebovanje_LZO_{year}_CEDIS.xlsx"
+        )
+        if not save_path: return
+
+        try:
+            wb = openpyxl.Workbook()
+            
+            # List 1: Sumarna specifikacija po artiklima i veličinama
+            ws1 = wb.active
+            ws1.title = "Sumarna Specifikacija"
+            ws1.views.sheetView[0].showGridLines = True
+
+            # CEDIS Logo if available
+            logo_path = get_cedis_logo_path()
+            if logo_path:
+                try:
+                    img = OpenpyxlImage(logo_path)
+                    img.width = 130
+                    img.height = 45
+                    ws1.add_image(img, "A1")
+                except Exception:
+                    pass
+
+            ws1.merge_cells("C1:F1")
+            t_cell = ws1["C1"]
+            t_cell.value = "CRNOGORSKI ELEKTRODISTRIBUTIVNI SISTEM - CEDIS"
+            t_cell.font = Font(name="Calibri", size=13, bold=True, color="0F172A")
+
+            ws1.merge_cells("C2:F2")
+            sub_cell = ws1["C2"]
+            title_mode = f"SPECIFIKACIJA TREBOVANJA LZO ZA {year}. GODINU" + (" (SA ISTEKLIM ROKOVIMA)" if include_expired else "")
+            sub_cell.value = title_mode
+            sub_cell.font = Font(name="Calibri", size=11, bold=True, color="2563EB")
+
+            ws1.cell(row=3, column=1, value=f"Organizaciona jedinica: {org_unit} | Datum generisanja: {datetime.now().strftime('%d.%m.%Y. u %H:%M')}").font = Font(size=9, italic=True)
+
+            headers = ["R.br.", "Naziv opreme / Artikal", "J.M.", "Specifikacija po veličinama i količinama", "Ukupno za trebovanje"]
+            header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+            header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+            thin_border = Border(left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'), top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9'))
+
+            for c_idx, h_text in enumerate(headers, 1):
+                cell = ws1.cell(row=5, column=c_idx, value=h_text)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = thin_border
+
+            r_idx = 6
+            grand_total = 0
+            for idx, (eq_name, details) in enumerate(sorted(summary.items()), 1):
+                sizes_dict = details["sizes"]
+                sorted_sizes = sorted(sizes_dict.keys(), key=sort_size_key)
+                size_str = "; ".join([f"vel. {s}: {sizes_dict[s]} {details['jm']}" for s in sorted_sizes])
+
+                ws1.cell(row=r_idx, column=1, value=idx).alignment = Alignment(horizontal="center")
+                ws1.cell(row=r_idx, column=2, value=eq_name)
+                ws1.cell(row=r_idx, column=3, value=details["jm"]).alignment = Alignment(horizontal="center")
+                ws1.cell(row=r_idx, column=4, value=size_str)
+                ws1.cell(row=r_idx, column=5, value=details["total_qty"]).alignment = Alignment(horizontal="center")
+
+                for c in range(1, 6):
+                    ws1.cell(row=r_idx, column=c).border = thin_border
+                    ws1.cell(row=r_idx, column=c).font = Font(name="Calibri", size=9.5)
+
+                grand_total += details["total_qty"]
+                r_idx += 1
+
+            # Ukupan red
+            ws1.cell(row=r_idx, column=2, value="UKUPNO SVE STAVKE:").font = Font(name="Calibri", size=10, bold=True)
+            tot_cell = ws1.cell(row=r_idx, column=5, value=grand_total)
+            tot_cell.font = Font(name="Calibri", size=10, bold=True, color="1E293B")
+            tot_cell.alignment = Alignment(horizontal="center")
+            tot_cell.fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
+
+            for col in ws1.columns:
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                col_letter = get_column_letter(col[0].column)
+                ws1.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+            # List 2: Pojedinačna specifikacija po zaposlenima
+            ws2 = wb.create_sheet(title="Pojedinačno po zaposlenima")
+            ws2.views.sheetView[0].showGridLines = True
+
+            headers_det = ["R.br.", "Ime i prezime", "Radno mjesto", "Org. jedinica", "Mjesto", "Oprema", "Vel. odjeća", "Vel. obuća", "Količina", "J.M.", "Ističe / Isteklo"]
+            for c_idx, h_text in enumerate(headers_det, 1):
+                cell = ws2.cell(row=1, column=c_idx, value=h_text)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = thin_border
+
+            for r_i, item in enumerate(filtered, 2):
+                d_ist = datetime.strptime(item["datum_isticanja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if item.get("datum_isticanja") else ""
+                vals = [
+                    r_i - 1, item.get("zaposleni", ""), item.get("rm", ""), item.get("org_jedinica", ""), item.get("grad", ""),
+                    item.get("oprema", ""), item.get("vel_odjeca", ""), item.get("vel_obuca", ""),
+                    item.get("normativ", 1) or item.get("izdata_kol", 1), item.get("jm", "KOM"), d_ist
+                ]
+                for c_i, val in enumerate(vals, 1):
+                    cell = ws2.cell(row=r_i, column=c_i, value=val)
+                    cell.border = thin_border
+                    cell.font = Font(name="Calibri", size=9)
+                    if c_i in [1, 7, 8, 9, 10, 11]:
+                        cell.alignment = Alignment(horizontal="center")
+
+            for col in ws2.columns:
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                col_letter = get_column_letter(col[0].column)
+                ws2.column_dimensions[col_letter].width = max(max_len + 3, 10)
+
+            wb.save(save_path)
+            messagebox.showinfo("Uspjeh", "Specifikacija trebovanja je uspješno sačuvana u Excel fajl!")
+        except Exception as e:
+            messagebox.showerror("Greška", f"Nije moguće sačuvati Trebovanje u Excel: {e}")
+
+    def export_trebovanje_pdf_file(self, year, include_expired, org_unit, summary, filtered):
+        if not REPORTLAB_AVAILABLE:
+            messagebox.showerror("Greška", "ReportLab nije instaliran za PDF izvoz.")
+            return
+
+        if not summary:
+            messagebox.showwarning("Upozorenje", "Nema podataka za trebovanje po izabranim kriterijumima.")
+            return
+
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf")],
+            initialfile=f"Trebovanje_LZO_{year}_CEDIS.pdf"
+        )
+        if not save_path: return
+
+        try:
+            doc = SimpleDocTemplate(save_path, pagesize=landscape(A4), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
+            styles = getSampleStyleSheet()
+
+            font_name = self.pdf_font_name
+            font_bold = 'CustomUnicode-Bold' if font_name == 'CustomUnicode' else 'Helvetica-Bold'
+
+            title_style = ParagraphStyle('TStyle', parent=styles['Heading1'], fontName=font_bold, fontSize=13, textColor=colors.HexColor('#0F172A'), alignment=0)
+            sub_style = ParagraphStyle('SStyle', parent=styles['Normal'], fontName=font_bold, fontSize=10, textColor=colors.HexColor('#2563EB'), alignment=0)
+            meta_style = ParagraphStyle('MStyle', parent=styles['Normal'], fontName=font_name, fontSize=8, textColor=colors.HexColor('#475569'), alignment=0)
+            cell_style = ParagraphStyle('CStyle', parent=styles['Normal'], fontName=font_name, fontSize=8, leading=9)
+            cell_bold = ParagraphStyle('CBStyle', parent=styles['Normal'], fontName=font_bold, fontSize=8, leading=9)
+
+            elements = []
+
+            # Zaglavlje sa CEDIS logotipom
+            logo_path = get_cedis_logo_path()
+            title_text = "CRNOGORSKI ELEKTRODISTRIBUTIVNI SISTEM\nSLUŽBA ZA ZZNR I LABORATORIJSKA ISPITIVANJA"
+            title_p = Paragraph(f"<b>{title_text.replace(chr(10), '<br/>')}</b>", title_style)
+            sub_title_p = Paragraph(f"<b>SPECIFIKACIJA TREBOVANJA OPREME ZA {year}. GODINU</b>" + (" (SA ISTEKLIM ROKOVIMA)" if include_expired else ""), sub_style)
+            meta_p = Paragraph(f"Organizaciona jedinica: <b>{org_unit}</b> | Datum izrade: <b>{datetime.now().strftime('%d.%m.%Y. u %H:%M')}</b>", meta_style)
+
+            if logo_path:
+                try:
+                    img_logo = ReportLabImage(logo_path, width=120, height=45)
+                    header_table = Table([[img_logo, [title_p, Spacer(1, 3), sub_title_p, meta_p]]], colWidths=[130, 670])
+                    header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+                    elements.append(header_table)
+                except Exception:
+                    elements.append(title_p); elements.append(sub_style); elements.append(meta_p)
+            else:
+                elements.append(title_p); elements.append(sub_title_p); elements.append(meta_p)
+
+            elements.append(Spacer(1, 12))
+
+            # Tabela 1: Sumarna specifikacija po artiklima i veličinama
+            elements.append(Paragraph("<b>1. Sumarna specifikacija trebovanja po artiklima i veličinama:</b>", ParagraphStyle('SecStyle', parent=styles['Normal'], fontName=font_bold, fontSize=10, textColor=colors.HexColor('#0F172A'))))
+            elements.append(Spacer(1, 5))
+
+            headers_t1 = ["R.br.", "Naziv opreme / Artikal", "J.M.", "Razrađene veličine i količine za trebovanje", "Ukupno"]
+            table_data_1 = [[Paragraph(f"<b>{h}</b>", ParagraphStyle('H1', parent=cell_bold, textColor=colors.white)) for h in headers_t1]]
+
+            grand_total = 0
+            for idx, (eq_name, details) in enumerate(sorted(summary.items()), 1):
+                sizes_dict = details["sizes"]
+                sorted_sizes = sorted(sizes_dict.keys(), key=sort_size_key)
+                size_str = "; ".join([f"vel. <b>{s}</b>: {sizes_dict[s]} {details['jm']}" for s in sorted_sizes])
+
+                table_data_1.append([
+                    Paragraph(str(idx), cell_style),
+                    Paragraph(eq_name, cell_bold),
+                    Paragraph(details["jm"], cell_style),
+                    Paragraph(size_str, cell_style),
+                    Paragraph(f"<b>{details['total_qty']}</b>", cell_bold)
+                ])
+                grand_total += details["total_qty"]
+
+            table_data_1.append([
+                Paragraph("", cell_style),
+                Paragraph("<b>UKUPNO SVE STAVKE:</b>", cell_bold),
+                Paragraph("", cell_style),
+                Paragraph("", cell_style),
+                Paragraph(f"<b>{grand_total}</b>", cell_bold)
+            ])
+
+            t1 = Table(table_data_1, colWidths=[35, 210, 45, 430, 80])
+            t1.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('ALIGN', (0,0), (0,-1), 'CENTER'),
+                ('ALIGN', (2,0), (2,-1), 'CENTER'),
+                ('ALIGN', (4,0), (4,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#F1F5F9')),
+            ]))
+            elements.append(t1)
+
+            elements.append(Spacer(1, 15))
+
+            # Potpisi na dnu
+            sig_data = [
+                [Paragraph("<b>Specifikaciju izradio:</b>", cell_style), Paragraph("<b>Odobrio rukovodilac:</b>", cell_style)],
+                [Spacer(1, 25), Spacer(1, 25)],
+                [Paragraph("___________________________", cell_style), Paragraph("___________________________", cell_style)]
+            ]
+            sig_table = Table(sig_data, colWidths=[400, 400])
+            elements.append(KeepTogether([sig_table]))
+
+            doc.build(elements)
+            messagebox.showinfo("Uspjeh", "Specifikacija trebovanja je uspješno sačuvana u PDF fajl!")
+        except Exception as e:
+            messagebox.showerror("Greška", f"Nije moguće generisati PDF Trebovanje: {e}")
+
+    # ------------------- GLAVNI IZVEŠTAJI (EXCEL & PDF) -------------------
+
     def generate_status_chart(self):
-        """Generiše linijski/stubičasti dijagram statusa opreme sa procentima."""
         counts = {"VAŽEĆE": 0, "USKORO": 0, "ISTEKLO": 0}
         for item in self.current_filtered_data:
             st = item.get("status", "VAŽEĆE")
-            if st in counts:
-                counts[st] += 1
+            if st in counts: counts[st] += 1
 
         total = sum(counts.values())
         labels = list(counts.keys())
         values = list(counts.values())
         chart_colors = ['#16A34A', '#D97706', '#DC2626']
 
-        fig, ax = plt.subplots(figsize=(6.5, 3.2))
+        fig, ax = plt.subplots(figsize=(6.5, 3.0))
         bars = ax.bar(labels, values, color=chart_colors, width=0.45)
-        ax.set_ylabel('Broj stavki', fontsize=9)
-        ax.set_title('Statusni pregled LZO opreme sa procentima', fontsize=10, fontweight='bold')
+        ax.set_ylabel('Broj stavki', fontsize=8)
+        ax.set_title('Statusni pregled LZO opreme CEDIS', fontsize=9, fontweight='bold')
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
 
@@ -462,8 +1031,7 @@ class LZOApp:
             percentage = (height / total * 100) if total > 0 else 0
             ax.annotate(f'{height}\n({percentage:.1f}%)',
                         xy=(bar.get_x() + bar.get_width() / 2, height),
-                        xytext=(0, 3),
-                        textcoords="offset points",
+                        xytext=(0, 3), textcoords="offset points",
                         ha='center', va='bottom', fontweight='bold', fontsize=8)
 
         plt.tight_layout()
@@ -480,7 +1048,7 @@ class LZOApp:
         save_path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel Files", "*.xlsx")],
-            initialfile="Izvjestaj_LZO.xlsx"
+            initialfile="Izvjestaj_LZO_CEDIS.xlsx"
         )
         if not save_path: return
 
@@ -499,17 +1067,28 @@ class LZOApp:
             p_warn = (warn / total * 100) if total else 0
             p_val = (val / total * 100) if total else 0
 
-            ws.merge_cells("A1:P1")
-            title_cell = ws["A1"]
-            title_cell.value = "IZVJEŠTAJ ZADUŽENJA LIČNE ZAŠTITNE OPREME (LZO)"
-            title_cell.font = Font(name="Calibri", size=14, bold=True, color="1F4E78")
-            title_cell.alignment = Alignment(horizontal="center", vertical="center")
+            # Umetanje logoa ako postoji
+            logo_path = get_cedis_logo_path()
+            if logo_path:
+                try:
+                    img_logo = OpenpyxlImage(logo_path)
+                    img_logo.width = 120
+                    img_logo.height = 40
+                    ws.add_image(img_logo, "A1")
+                except Exception:
+                    pass
 
-            ws.merge_cells("A2:P2")
-            sub_cell = ws["A2"]
-            sub_cell.value = f"Datum generisanja: {datetime.now().strftime('%d.%m.%Y. u %H:%M')} | Ukupno stavki: {total} | Važeće: {val} ({p_val:.1f}%) | Uskoro ističe: {warn} ({p_warn:.1f}%) | Isteklo: {exp} ({p_exp:.1f}%)"
-            sub_cell.font = Font(name="Calibri", size=10, italic=True, color="595959")
-            sub_cell.alignment = Alignment(horizontal="center", vertical="center")
+            ws.merge_cells("C1:P1")
+            title_cell = ws["C1"]
+            title_cell.value = "CRNOGORSKI ELEKTRODISTRIBUTIVNI SISTEM - IZVJEŠTAJ ZADUŽENJA LZO"
+            title_cell.font = Font(name="Calibri", size=13, bold=True, color="0F172A")
+            title_cell.alignment = Alignment(horizontal="left", vertical="center")
+
+            ws.merge_cells("C2:P2")
+            sub_cell = ws["C2"]
+            sub_cell.value = f"Datum: {datetime.now().strftime('%d.%m.%Y. u %H:%M')} | Ukupno stavki: {total} | Važeće: {val} ({p_val:.1f}%) | Uskoro ističe: {warn} ({p_warn:.1f}%) | Isteklo: {exp} ({p_exp:.1f}%)"
+            sub_cell.font = Font(name="Calibri", size=9.5, italic=True, color="475569")
+            sub_cell.alignment = Alignment(horizontal="left", vertical="center")
 
             headers = [
                 "Ime i prezime", "Radno mjesto", "Org. jedinica", "Mjesto / Grad",
@@ -517,7 +1096,7 @@ class LZOApp:
                 "Izdata kol.", "Datum zaduženja", "Datum isticanja", "Preostalo dana", "Status", "Napomena"
             ]
 
-            header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+            header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
             header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
             thin_border = Border(
                 left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
@@ -540,8 +1119,7 @@ class LZOApp:
             font_valid = Font(name="Calibri", size=9, color="006100")
             font_regular = Font(name="Calibri", size=9)
 
-            start_row = 5
-            for r_idx, row in enumerate(self.current_filtered_data, start=start_row):
+            for r_idx, row in enumerate(self.current_filtered_data, start=5):
                 d_zad = datetime.strptime(row["datum_zaduzenja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if row.get("datum_zaduzenja") else ""
                 d_ist = datetime.strptime(row["datum_isticanja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if row.get("datum_isticanja") else ""
 
@@ -583,18 +1161,18 @@ class LZOApp:
             chart_img_path = self.generate_status_chart()
             img = OpenpyxlImage(chart_img_path)
             img.width = 450
-            img.height = 225
+            img.height = 210
             chart_row = len(self.current_filtered_data) + 7
             ws.add_image(img, f"B{chart_row}")
 
             wb.save(save_path)
-            messagebox.showinfo("Uspjeh", "Excel izvještaj sa procentima i grafikonom je sačuvan!")
+            messagebox.showinfo("Uspjeh", "Excel izvještaj CEDIS sa procentima i dijagramom je uspešno sačuvan!")
         except Exception as e:
             messagebox.showerror("Greška", f"Nije moguće sačuvati Excel fajl: {e}")
 
     def export_pdf_report(self):
         if not REPORTLAB_AVAILABLE:
-            messagebox.showerror("Greška", "Biblioteka ReportLab nije instalirana. Instalirajte je preko 'pip install reportlab'.")
+            messagebox.showerror("Greška", "Biblioteka ReportLab nije instalirana.")
             return
 
         if not self.current_filtered_data:
@@ -604,7 +1182,7 @@ class LZOApp:
         save_path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF Files", "*.pdf")],
-            initialfile="Izvjestaj_LZO.pdf"
+            initialfile="Izvjestaj_LZO_CEDIS.pdf"
         )
         if not save_path: return
 
@@ -624,24 +1202,35 @@ class LZOApp:
             font_name = self.pdf_font_name
             font_bold = 'CustomUnicode-Bold' if font_name == 'CustomUnicode' else 'Helvetica-Bold'
 
-            title_style = ParagraphStyle(
-                'TitleStyle', parent=styles['Heading1'], fontName=font_bold,
-                fontSize=14, textColor=colors.HexColor('#1E293B'), alignment=1, spaceAfter=4
-            )
-            sub_style = ParagraphStyle(
-                'SubStyle', parent=styles['Normal'], fontName=font_name,
-                fontSize=9, textColor=colors.HexColor('#475569'), alignment=1, spaceAfter=10
-            )
+            title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName=font_bold, fontSize=13, textColor=colors.HexColor('#0F172A'), alignment=0)
+            sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontName=font_name, fontSize=8.5, textColor=colors.HexColor('#475569'), alignment=0)
             cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontName=font_name, fontSize=7, leading=8)
             cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName=font_bold, fontSize=7, leading=8)
 
             elements = []
-            elements.append(Paragraph("IZVJEŠTAJ ZADUŽENJA LIČNE ZAŠTITNE OPREME (LZO)", title_style))
+
+            # CEDIS Logo Zaglavlje
+            logo_path = get_cedis_logo_path()
+            title_text = "CRNOGORSKI ELEKTRODISTRIBUTIVNI SISTEM - CEDIS\nIZVJEŠTAJ ZADUŽENJA LIČNE ZAŠTITNE OPREME"
+            title_p = Paragraph(f"<b>{title_text.replace(chr(10), '<br/>')}</b>", title_style)
             sub_text = f"Datum: {datetime.now().strftime('%d.%m.%Y. u %H:%M')} | Ukupno: {total} | Važeće: {val} ({p_val:.1f}%) | Uskoro ističe: {warn} ({p_warn:.1f}%) | Isteklo: {exp} ({p_exp:.1f}%)"
-            elements.append(Paragraph(sub_text, sub_style))
+            sub_p = Paragraph(sub_text, sub_style)
+
+            if logo_path:
+                try:
+                    img_logo = ReportLabImage(logo_path, width=120, height=42)
+                    hdr_table = Table([[img_logo, [title_p, Spacer(1, 4), sub_p]]], colWidths=[130, 670])
+                    hdr_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+                    elements.append(hdr_table)
+                except Exception:
+                    elements.append(title_p); elements.append(sub_p)
+            else:
+                elements.append(title_p); elements.append(sub_p)
+
+            elements.append(Spacer(1, 10))
 
             chart_path = self.generate_status_chart()
-            elements.append(ReportLabImage(chart_path, width=320, height=160))
+            elements.append(ReportLabImage(chart_path, width=300, height=140))
             elements.append(Spacer(1, 10))
 
             headers = ["Zaposleni", "Radno mjesto", "Org. jedinica", "Mjesto", "Oprema", "J.M.", "Norm.", "Rok", "Izd.", "Zaduženo", "Ističe", "Preostalo", "Status"]
@@ -651,245 +1240,39 @@ class LZOApp:
                 d_zad = datetime.strptime(row["datum_zaduzenja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if row.get("datum_zaduzenja") else ""
                 d_ist = datetime.strptime(row["datum_isticanja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if row.get("datum_isticanja") else ""
 
-                r_vals = [
-                    Paragraph(row.get("zaposleni", ""), cell_style),
+                st = row.get("status", "")
+                st_color = "#166534" if st == "VAŽEĆE" else ("#92400E" if st == "USKORO" else "#991B1B")
+
+                table_data.append([
+                    Paragraph(row.get("zaposleni", ""), cell_bold),
                     Paragraph(row.get("rm", ""), cell_style),
                     Paragraph(row.get("org_jedinica", ""), cell_style),
                     Paragraph(row.get("grad", ""), cell_style),
                     Paragraph(row.get("oprema", ""), cell_style),
-                    Paragraph(str(row.get("jm", "KOM")), cell_style),
+                    Paragraph(row.get("jm", "KOM"), cell_style),
                     Paragraph(str(row.get("normativ", 1)), cell_style),
                     Paragraph(str(row.get("rok_mjeseci", 12)), cell_style),
                     Paragraph(str(row.get("izdata_kol", 1)), cell_style),
                     Paragraph(d_zad, cell_style),
                     Paragraph(d_ist, cell_style),
                     Paragraph(str(row.get("preostalo_dana", "-")), cell_style),
-                    Paragraph(f"<b>{row.get('status', '')}</b>", cell_style)
-                ]
-                table_data.append(r_vals)
+                    Paragraph(f"<font color='{st_color}'><b>{st}</b></font>", cell_bold)
+                ])
 
-            col_w = [85, 75, 75, 55, 110, 30, 30, 28, 28, 55, 55, 45, 50]
-            t = Table(table_data, colWidths=col_w, repeatRows=1)
-
-            t_style = [
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E293B')),
+            t = Table(table_data, colWidths=[90, 80, 80, 55, 95, 30, 35, 30, 30, 55, 55, 50, 55])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
-                ('TOPPADDING', (0,0), (-1,-1), 3),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-            ]
+                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')])
+            ]))
 
-            for idx, r_item in enumerate(self.current_filtered_data, start=1):
-                st = r_item.get("status", "")
-                if st == "ISTEKLO":
-                    t_style.append(('BACKGROUND', (12, idx), (12, idx), colors.HexColor('#FEE2E2')))
-                elif st == "USKORO":
-                    t_style.append(('BACKGROUND', (12, idx), (12, idx), colors.HexColor('#FEF3C7')))
-                elif st == "VAŽEĆE":
-                    t_style.append(('BACKGROUND', (12, idx), (12, idx), colors.HexColor('#DCFCE7')))
-
-            t.setStyle(TableStyle(t_style))
             elements.append(t)
-
             doc.build(elements)
-            messagebox.showinfo("Uspjeh", "PDF izvještaj sa procentima i dijakritičkim slovima je uspješno generisan!")
+            messagebox.showinfo("Uspjeh", "PDF izvještaj CEDIS sa dijagramom je sačuvan!")
         except Exception as e:
-            messagebox.showerror("Greška", f"Nije moguće generisati PDF fajl: {e}")
-
-    def import_excel(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
-        if not file_path: return
-
-        try:
-            xls = pd.ExcelFile(file_path)
-            self.push_undo_state()
-
-            imported_count = 0
-            new_data = []
-
-            for sheet_name in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=sheet_name)
-                
-                # Automatsko popunjavanje praznih polja nastalih spajanjem ćelija (ffill)
-                demo_cols = [c for c in df.columns if c in [
-                    'Zaposleni', 'Ime i prezime', 'RM', 'Radno mjesto', 
-                    'Organizaciona jedinica', 'Org. jedinica', 'Grad', 'Mjesto', 
-                    'Konfekcijski broj - veličina', 'Unnamed: 5', 'Vel. odjeća', 'Vel. obuća'
-                ]]
-                if demo_cols:
-                    df[demo_cols] = df[demo_cols].ffill()
-
-                for _, row in df.iterrows():
-                    zaposleni = str(row.get("Zaposleni", row.get("Ime i prezime", row.get("zaposleni", "")))).strip()
-                    oprema = str(row.get("Naziv sredstva/opreme", row.get("Oprema", row.get("oprema", "")))).strip()
-
-                    if not zaposleni or zaposleni.lower() == "nan" or not oprema or oprema.lower() == "nan":
-                        continue
-
-                    d_zad = ""
-                    raw_d = row.get("Datum zaduženja", row.get("datum_zaduzenja"))
-                    if pd.notna(raw_d):
-                        if isinstance(raw_d, (datetime, pd.Timestamp)):
-                            d_zad = raw_d.strftime("%Y-%m-%d")
-                        else:
-                            d_zad = str(raw_d)[:10]
-
-                    item_id = len(new_data) + len(self.data) + 1
-
-                    item = {
-                        "id": item_id,
-                        "zaposleni": zaposleni,
-                        "rm": "" if pd.isna(row.get("RM", row.get("Radno mjesto"))) else str(row.get("RM", row.get("Radno mjesto", ""))).strip(),
-                        "org_jedinica": "" if pd.isna(row.get("Organizaciona jedinica", row.get("Org. jedinica"))) else str(row.get("Organizaciona jedinica", row.get("Org. jedinica", ""))).strip(),
-                        "grad": "" if pd.isna(row.get("Grad", row.get("Mjesto"))) else str(row.get("Grad", row.get("Mjesto", ""))).strip(),
-                        "vel_odjeca": "" if pd.isna(row.get("Unnamed: 5", row.get("Vel. odjeća"))) else str(row.get("Unnamed: 5", row.get("Vel. odjeća", ""))).strip(),
-                        "vel_obuca": "" if pd.isna(row.get("Konfekcijski broj - veličina", row.get("Vel. obuća"))) else str(row.get("Konfekcijski broj - veličina", row.get("Vel. obuća", ""))).strip(),
-                        "oprema": oprema,
-                        "jm": "KOM" if pd.isna(row.get("Jedinica mjere", row.get("J.M."))) else str(row.get("Jedinica mjere", row.get("J.M.", "KOM"))).strip(),
-                        "normativ": 1 if pd.isna(row.get("Količina (Normativ)", row.get("Normativ"))) else int(row.get("Količina (Normativ)", row.get("Normativ", 1)) or 1),
-                        "rok_mjeseci": 12 if pd.isna(row.get("Rok (mjeseci)", row.get("Rok (mj)"))) else int(row.get("Rok (mjeseci)", row.get("Rok (mj)", 12)) or 12),
-                        "izdata_kol": 1 if pd.isna(row.get("Izdata količina", row.get("Izdata kol."))) else int(row.get("Izdata količina", row.get("Izdata kol.", 1)) or 1),
-                        "datum_zaduzenja": d_zad,
-                        "napomena": "" if pd.isna(row.get("NAPOMENA", row.get("Napomena"))) else str(row.get("NAPOMENA", row.get("Napomena", ""))).strip()
-                    }
-
-                    new_data.append(item)
-                    imported_count += 1
-
-            self.data.extend(new_data)
-            self.recalculate_and_refresh()
-            messagebox.showinfo("Uspjeh", f"Uspješno uvezeno {imported_count} zapisa iz Excel fajla!")
-        except Exception as e:
-            messagebox.showerror("Greška", f"Nije moguće uvesti podatke iz Excel-a: {e}")
-
-    def delete_selected(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Upozorenje", "Izaberite jedan ili više zapisa za brisanje.")
-            return
-
-        if messagebox.askyesno("Potvrda", f"Da li ste sigurni da želite obrisati {len(selected)} selektovanih zapisa?"):
-            self.push_undo_state()
-            
-            selected_ids = [self.tree.item(item)["values"][0] for item in selected]
-            self.data = [x for x in self.data if x["id"] not in selected_ids]
-            
-            self.recalculate_and_refresh()
-            messagebox.showinfo("Uspjeh", "Selektovani zapisi su obrisani.")
-
-    def open_add_dialog(self):
-        self.show_edit_window(title="Novo zaduženje LZO", item=None)
-
-    def open_edit_dialog(self, event=None):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Upozorenje", "Izaberite zapis iz tabele koji želite izmijeniti.")
-            return
-
-        item_id = self.tree.item(selected[0])["values"][0]
-        target_item = next((x for x in self.data if x["id"] == item_id), None)
-        if target_item:
-            self.show_edit_window(title="Izmjena zaduženja LZO", item=target_item)
-
-    def show_edit_window(self, title, item=None):
-        win = tk.Toplevel(self.root)
-        win.title(title)
-        win.geometry("520x650")
-        win.configure(bg="#F8FAFC")
-        win.grab_set()
-
-        fields = [
-            ("Ime i Prezime:", "zaposleni"),
-            ("Radno Mjesto:", "rm"),
-            ("Organizaciona Jedinica:", "org_jedinica"),
-            ("Mjesto / Grad:", "grad"),
-            ("Veličina Odjeće:", "vel_odjeca"),
-            ("Veličina Obuće:", "vel_obuca"),
-            ("Naziv Opreme:", "oprema"),
-            ("Jedinica Mjere:", "jm"),
-            ("Normativ - Količina:", "normativ"),
-            ("Rok u mjesecima:", "rok_mjeseci"),
-            ("Izdata Količina:", "izdata_kol"),
-            ("Datum Zaduženja (GGGG-MM-DD):", "datum_zaduzenja"),
-            ("Napomena:", "napomena")
-        ]
-
-        entries = {}
-        for idx, (label_text, key) in enumerate(fields):
-            tk.Label(win, text=label_text, font=("Segoe UI", 9, "bold"), bg="#F8FAFC", fg="#1E293B").grid(row=idx, column=0, sticky="w", padx=20, pady=4)
-            entry = tk.Entry(win, width=32, font=("Segoe UI", 9))
-            entry.grid(row=idx, column=1, padx=20, pady=4)
-
-            if item:
-                entry.insert(0, str(item.get(key, "")))
-            entries[key] = entry
-
-        def save():
-            zaposleni = entries["zaposleni"].get().strip()
-            oprema = entries["oprema"].get().strip()
-
-            if not zaposleni or not oprema:
-                messagebox.showerror("Greška", "Ime zaposlenog i naziv opreme su obavezni!", parent=win)
-                return
-
-            try:
-                normativ = int(entries["normativ"].get().strip() or 1)
-                rok = int(entries["rok_mjeseci"].get().strip() or 12)
-                izdata_kol = int(entries["izdata_kol"].get().strip() or 1)
-            except ValueError:
-                messagebox.showerror("Greška", "Normativ, Rok i Izdata količina moraju biti cijeli brojevi!", parent=win)
-                return
-
-            d_zad = entries["datum_zaduzenja"].get().strip()
-            if d_zad:
-                try:
-                    datetime.strptime(d_zad, "%Y-%m-%d")
-                except ValueError:
-                    messagebox.showerror("Greška", "Datum mora biti u formatu GGGG-MM-DD (npr. 2026-05-20)", parent=win)
-                    return
-
-            self.push_undo_state()
-
-            if item:
-                item["zaposleni"] = zaposleni
-                item["rm"] = entries["rm"].get().strip()
-                item["org_jedinica"] = entries["org_jedinica"].get().strip()
-                item["grad"] = entries["grad"].get().strip()
-                item["vel_odjeca"] = entries["vel_odjeca"].get().strip()
-                item["vel_obuca"] = entries["vel_obuca"].get().strip()
-                item["oprema"] = oprema
-                item["jm"] = entries["jm"].get().strip() or "KOM"
-                item["normativ"] = normativ
-                item["rok_mjeseci"] = rok
-                item["izdata_kol"] = izdata_kol
-                item["datum_zaduzenja"] = d_zad
-                item["napomena"] = entries["napomena"].get().strip()
-            else:
-                new_id = max([x.get("id", 0) for x in self.data], default=0) + 1
-                new_item = {
-                    "id": new_id,
-                    "zaposleni": zaposleni,
-                    "rm": entries["rm"].get().strip(),
-                    "org_jedinica": entries["org_jedinica"].get().strip(),
-                    "grad": entries["grad"].get().strip(),
-                    "vel_odjeca": entries["vel_odjeca"].get().strip(),
-                    "vel_obuca": entries["vel_obuca"].get().strip(),
-                    "oprema": oprema,
-                    "jm": entries["jm"].get().strip() or "KOM",
-                    "normativ": normativ,
-                    "rok_mjeseci": rok,
-                    "izdata_kol": izdata_kol,
-                    "datum_zaduzenja": d_zad,
-                    "napomena": entries["napomena"].get().strip()
-                }
-                self.data.append(new_item)
-
-            self.recalculate_and_refresh()
-            win.destroy()
-
-        btn_save = tk.Button(win, text="💾 Sačuvaj", command=save, bg="#059669", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", padx=15, pady=6, cursor="hand2")
-        btn_save.grid(row=len(fields), column=0, columnspan=2, pady=15)
+            messagebox.showerror("Greška", f"Nije moguće generisati PDF izvještaj: {e}")
 
 if __name__ == "__main__":
     root = tk.Tk()
