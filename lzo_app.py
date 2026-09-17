@@ -17,7 +17,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# ReportLab biblioteka za PDF generisanje i podrška za Unicode fontove
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
@@ -32,7 +31,7 @@ except ImportError:
 DB_FILE = "lzo_baza.json"
 
 def get_unicode_font_name():
-    """Učitava i registruje sistemski Unicode font (Arial/DejaVu) za ispravan prikaz Č, Š, Ć, Đ, Ž u PDF-u."""
+    """Registruje font sa podrškom za regionalna slova (č, š, ć, đ, ž) u PDF-u."""
     if not REPORTLAB_AVAILABLE:
         return 'Helvetica'
     
@@ -66,24 +65,20 @@ class LZOApp:
         self.data = []
         self.current_filtered_data = []
         self.sort_directions = {}
-        
-        # Istorija za UNDO funkcionalnost
-        self.history = []
+        self.history = []  # Istorija za Undo (Ctrl+Z)
 
         self.pdf_font_name = get_unicode_font_name()
         self.setup_styles()
         self.create_widgets()
         self.load_local_db()
 
-        # Prečica na tastaturi Ctrl+Z za Undo
+        # Prečica za tastaturu Ctrl+Z
         self.root.bind("<Control-z>", lambda e: self.undo())
 
     def setup_styles(self):
-        """Podešavanje modernog vizuelnog stila za TTK komponente."""
         self.style = ttk.Style()
         self.style.theme_use("clam")
 
-        # Tabela (Treeview)
         self.style.configure(
             "Treeview",
             background="#FFFFFF",
@@ -101,19 +96,17 @@ class LZOApp:
         )
         self.style.map("Treeview.Heading", background=[('active', '#1E293B')])
         self.style.map("Treeview", background=[('selected', '#2563EB')], foreground=[('selected', '#FFFFFF')])
-
-        # Combobox
         self.style.configure("TCombobox", font=("Segoe UI", 9), padding=4)
 
     def push_undo_state(self):
-        """Snima trenutno stanje u istoriju prije izmjene podataka (Max 20 koraka)."""
+        """Pamti trenutno stanje baze prije bilo kakve izmjene."""
         self.history.append(copy.deepcopy(self.data))
-        if len(self.history) > 20:
+        if len(self.history) > 20: # Ograničavamo na 20 koraka
             self.history.pop(0)
         self.btn_undo.config(state=tk.NORMAL)
 
     def undo(self, event=None):
-        """Vraća prethodno stanje podataka (Undo)."""
+        """Poništava poslednju akciju (Undo)."""
         if self.history:
             self.data = self.history.pop()
             self.recalculate_and_refresh()
@@ -124,7 +117,7 @@ class LZOApp:
             messagebox.showinfo("Undo", "Nema prethodnih koraka za poništavanje.")
 
     def create_widgets(self):
-        # --- Gornji komandni panel ---
+        # Gornji panel sa akcionim dugmadima
         top_frame = tk.Frame(self.root, pady=10, padx=15, bg="#1E293B")
         top_frame.pack(fill=tk.X)
 
@@ -142,22 +135,19 @@ class LZOApp:
         btn_delete = tk.Button(top_frame, text="🗑️ Obriši selektovano", command=self.delete_selected, bg="#DC2626", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
         btn_delete.pack(side=tk.LEFT, padx=4)
 
-        # Undo dugme
         self.btn_undo = tk.Button(top_frame, text="↩️ Poništi (Undo)", command=self.undo, bg="#475569", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2", state=tk.DISABLED)
         self.btn_undo.pack(side=tk.LEFT, padx=(15, 4))
 
-        # Izvoz
         btn_export_pdf = tk.Button(top_frame, text="📄 Izvezi PDF (+ %)", command=self.export_pdf_report, bg="#B91C1C", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
         btn_export_pdf.pack(side=tk.RIGHT, padx=4)
 
         btn_export_excel = tk.Button(top_frame, text="📊 Izvezi Excel (+ %)", command=self.export_excel_report, bg="#16A34A", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=4, cursor="hand2")
         btn_export_excel.pack(side=tk.RIGHT, padx=4)
 
-        # --- Panel za Pretragu i Napredno Filtriranje ---
+        # Sekcija za filtriranje
         filter_frame = tk.LabelFrame(self.root, text=" Pretraga i Filtriranje ", font=("Segoe UI", 9, "bold"), padx=12, pady=8, bg="#FFFFFF", fg="#1E293B", relief="solid", bd=1)
         filter_frame.pack(fill=tk.X, padx=15, pady=10)
 
-        # Pretraga sa padajućim menijem (Combobox sa pretragom zaposlenih)
         tk.Label(filter_frame, text="Pretraga (Zaposleni):", bg="#FFFFFF", font=("Segoe UI", 9, "bold"), fg="#334155").grid(row=0, column=0, sticky="w", padx=2)
         
         self.combo_search = ttk.Combobox(filter_frame, width=22, font=("Segoe UI", 9))
@@ -165,25 +155,21 @@ class LZOApp:
         self.combo_search.bind("<KeyRelease>", self.on_search_key_release)
         self.combo_search.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
 
-        # Org jedinica
         tk.Label(filter_frame, text="Org. jedinica:", bg="#FFFFFF", font=("Segoe UI", 9), fg="#334155").grid(row=0, column=2, sticky="w", padx=(10, 2))
         self.combo_org = ttk.Combobox(filter_frame, state="readonly", width=16)
         self.combo_org.grid(row=0, column=3, padx=4, pady=2)
         self.combo_org.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
 
-        # Mjesto / Grad
         tk.Label(filter_frame, text="Mjesto / Grad:", bg="#FFFFFF", font=("Segoe UI", 9), fg="#334155").grid(row=0, column=4, sticky="w", padx=(10, 2))
         self.combo_city = ttk.Combobox(filter_frame, state="readonly", width=14)
         self.combo_city.grid(row=0, column=5, padx=4, pady=2)
         self.combo_city.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
 
-        # Oprema
         tk.Label(filter_frame, text="Oprema:", bg="#FFFFFF", font=("Segoe UI", 9), fg="#334155").grid(row=0, column=6, sticky="w", padx=(10, 2))
         self.combo_equipment = ttk.Combobox(filter_frame, state="readonly", width=16)
         self.combo_equipment.grid(row=0, column=7, padx=4, pady=2)
         self.combo_equipment.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
 
-        # Status
         tk.Label(filter_frame, text="Status:", bg="#FFFFFF", font=("Segoe UI", 9), fg="#334155").grid(row=0, column=8, sticky="w", padx=(10, 2))
         self.combo_status = ttk.Combobox(filter_frame, state="readonly", width=12, values=["SVI", "ISTEKLO", "USKORO", "VAŽEĆE"])
         self.combo_status.current(0)
@@ -193,11 +179,11 @@ class LZOApp:
         btn_reset = tk.Button(filter_frame, text="Poništi filtere", command=self.reset_filters, font=("Segoe UI", 8, "bold"), bg="#E2E8F0", fg="#334155", relief="flat", padx=6, pady=2)
         btn_reset.grid(row=0, column=10, padx=(10, 2))
 
-        # --- Statusna traka ---
+        # Statusna traka
         self.lbl_status = tk.Label(self.root, text="Inicijalizacija sistema...", font=("Segoe UI", 9, "italic"), anchor="w", padx=15, pady=6, bg="#E2E8F0", fg="#1E293B")
         self.lbl_status.pack(fill=tk.X, padx=15, pady=(0, 5))
 
-        # --- Tabela (Treeview) ---
+        # Tabela (Treeview)
         table_frame = tk.Frame(self.root, bg="#F8FAFC")
         table_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
 
@@ -221,7 +207,7 @@ class LZOApp:
             center_cols = ["ID", "Vel. odjeća", "Vel. obuća", "J.M.", "Normativ", "Rok (mj)", "Izdata kol.", "Zaduženo", "Ističe", "Preostalo dana", "Status"]
             self.tree.column(col, width=col_widths.get(col, 100), anchor=tk.CENTER if col in center_cols else tk.W)
 
-        self.tree.column("ID", width=0, stretch=False)
+        self.tree.column("ID", width=0, stretch=False) # Skrivamo ID kolonu
 
         scrollbar_y = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
         scrollbar_x = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
@@ -231,6 +217,7 @@ class LZOApp:
         scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.tree.pack(fill=tk.BOTH, expand=True)
 
+        # Stilovi za statuse (Boje redova)
         self.tree.tag_configure("ISTEKLO", background="#FEE2E2", foreground="#991B1B")
         self.tree.tag_configure("USKORO", background="#FEF3C7", foreground="#92400E")
         self.tree.tag_configure("VAŽEĆE", background="#DCFCE7", foreground="#166534")
@@ -238,7 +225,6 @@ class LZOApp:
         self.tree.bind("<Double-1>", self.open_edit_dialog)
 
     def on_search_key_release(self, event):
-        """Opadajući meni kod pretrage zaposlenih - dinamički azurira listu ponudjenih imena."""
         if event.keysym in ["Up", "Down", "Return", "Escape", "Tab"]:
             return
 
@@ -452,7 +438,7 @@ class LZOApp:
         self.refresh_table(self.current_filtered_data)
 
     def generate_status_chart(self):
-        """Generiše grafikon sa prikazom apsolutnih vrijednosti i procenata."""
+        """Generiše linijski/stubičasti dijagram statusa opreme sa procentima."""
         counts = {"VAŽEĆE": 0, "USKORO": 0, "ISTEKLO": 0}
         for item in self.current_filtered_data:
             st = item.get("status", "VAŽEĆE")
@@ -513,7 +499,6 @@ class LZOApp:
             p_warn = (warn / total * 100) if total else 0
             p_val = (val / total * 100) if total else 0
 
-            # Zaglavlje
             ws.merge_cells("A1:P1")
             title_cell = ws["A1"]
             title_cell.value = "IZVJEŠTAJ ZADUŽENJA LIČNE ZAŠTITNE OPREME (LZO)"
@@ -712,13 +697,13 @@ class LZOApp:
         except Exception as e:
             messagebox.showerror("Greška", f"Nije moguće generisati PDF fajl: {e}")
 
-def import_excel(self):
+    def import_excel(self):
         file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
         if not file_path: return
 
         try:
             xls = pd.ExcelFile(file_path)
-            self.push_undo_state() # Čuvanje stanja prije uvoza
+            self.push_undo_state()
 
             imported_count = 0
             new_data = []
@@ -736,14 +721,12 @@ def import_excel(self):
                     df[demo_cols] = df[demo_cols].ffill()
 
                 for _, row in df.iterrows():
-                    # Dinamičko prepoznavanje kolona iz vašeg Excel fajla
                     zaposleni = str(row.get("Zaposleni", row.get("Ime i prezime", row.get("zaposleni", "")))).strip()
                     oprema = str(row.get("Naziv sredstva/opreme", row.get("Oprema", row.get("oprema", "")))).strip()
 
                     if not zaposleni or zaposleni.lower() == "nan" or not oprema or oprema.lower() == "nan":
                         continue
 
-                    # Obrada datuma zaduženja
                     d_zad = ""
                     raw_d = row.get("Datum zaduženja", row.get("datum_zaduzenja"))
                     if pd.notna(raw_d):
@@ -787,7 +770,7 @@ def import_excel(self):
             return
 
         if messagebox.askyesno("Potvrda", f"Da li ste sigurni da želite obrisati {len(selected)} selektovanih zapisa?"):
-            self.push_undo_state() # Čuvanje stanja prije brisanja
+            self.push_undo_state()
             
             selected_ids = [self.tree.item(item)["values"][0] for item in selected]
             self.data = [x for x in self.data if x["id"] not in selected_ids]
@@ -866,7 +849,7 @@ def import_excel(self):
                     messagebox.showerror("Greška", "Datum mora biti u formatu GGGG-MM-DD (npr. 2026-05-20)", parent=win)
                     return
 
-            self.push_undo_state() # Čuvanje stanja u Undo istoriji
+            self.push_undo_state()
 
             if item:
                 item["zaposleni"] = zaposleni
