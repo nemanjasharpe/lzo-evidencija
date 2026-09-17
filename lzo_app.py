@@ -119,6 +119,107 @@ class LoginWindow(tk.Toplevel):
         self.parent.destroy()
 
 
+class RecordDialog(tk.Toplevel):
+    """Dijalog za unos i izmjenu zaduženja LZO."""
+    def __init__(self, parent, title="Zaduženje LZO", record=None):
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("520x620")
+        self.resizable(False, False)
+        self.configure(bg="#f8fafc")
+        self.result = None
+        self.record = record or {}
+
+        self.transient(parent)
+        self.grab_set()
+
+        self.create_widgets()
+        self.tk.eval('tk::PlaceWindow . center')
+
+    def create_widgets(self):
+        header = tk.Frame(self, bg="#1e293b", pady=10)
+        header.pack(fill=tk.X)
+        tk.Label(header, text="UNOS / IZMJENA ZADUŽENJA", font=("Segoe UI", 11, "bold"), fg="white", bg="#1e293b").pack()
+
+        body = tk.Frame(self, bg="#f8fafc", padx=20, pady=15)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        fields = [
+            ("Zaposleni (Ime i prezime):", "zaposleni"),
+            ("Radno mjesto:", "rm"),
+            ("Organizaciona jedinica:", "org_jedinica"),
+            ("Mjesto / Grad:", "grad"),
+            ("Veličina odjeće:", "vel_odjeca"),
+            ("Veličina obuće:", "vel_obuca"),
+            ("Naziv opreme:", "oprema"),
+            ("Jedinica mjere (J.M.):", "jm"),
+            ("Normativ:", "normativ"),
+            ("Rok trajanja (mjeseci):", "rok_mjeseci"),
+            ("Izdata količina:", "izdata_kol"),
+            ("Datum zaduženja (YYYY-MM-DD):", "datum_zaduzenja"),
+            ("Napomena:", "napomena")
+        ]
+
+        self.entries = {}
+        for idx, (label_text, key) in enumerate(fields):
+            tk.Label(body, text=label_text, font=("Segoe UI", 8, "bold"), bg="#f8fafc", fg="#334155").grid(row=idx, column=0, sticky="w", pady=2)
+            ent = ttk.Entry(body, font=("Segoe UI", 9))
+            ent.grid(row=idx, column=1, sticky="ew", pady=2, padx=(10, 0))
+            
+            val = self.record.get(key, "")
+            if key == "jm" and not val: val = "KOM"
+            if key == "normativ" and not val: val = "1"
+            if key == "rok_mjeseci" and not val: val = "12"
+            if key == "izdata_kol" and not val: val = "1"
+            if key == "datum_zaduzenja" and not val: val = datetime.now().strftime("%Y-%m-%d")
+
+            ent.insert(0, str(val))
+            self.entries[key] = ent
+
+        body.columnconfigure(1, weight=1)
+
+        btn_frame = tk.Frame(self, bg="#f8fafc", pady=10)
+        btn_frame.pack(fill=tk.X)
+
+        tk.Button(btn_frame, text="Sačuvaj", command=self.on_save, bg="#16a34a", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=15, pady=4, cursor="hand2").pack(side=tk.RIGHT, padx=15)
+        tk.Button(btn_frame, text="Otkaži", command=self.destroy, bg="#64748b", fg="white", font=("Segoe UI", 9), relief="flat", padx=15, pady=4, cursor="hand2").pack(side=tk.RIGHT, padx=5)
+
+    def on_save(self):
+        try:
+            d_zad = self.entries["datum_zaduzenja"].get().strip()
+            if d_zad:
+                datetime.strptime(d_zad, "%Y-%m-%d")
+        except ValueError:
+            messagebox.showerror("Greška", "Datum zaduženja mora biti u formatu YYYY-MM-DD!", parent=self)
+            return
+
+        try:
+            normativ = int(self.entries["normativ"].get().strip() or 1)
+            rok = int(self.entries["rok_mjeseci"].get().strip() or 12)
+            kol = int(self.entries["izdata_kol"].get().strip() or 1)
+        except ValueError:
+            messagebox.showerror("Greška", "Normativ, rok i količina moraju biti cijeli brojevi!", parent=self)
+            return
+
+        self.result = {
+            "id": self.record.get("id"),
+            "zaposleni": self.entries["zaposleni"].get().strip(),
+            "rm": self.entries["rm"].get().strip(),
+            "org_jedinica": self.entries["org_jedinica"].get().strip(),
+            "grad": self.entries["grad"].get().strip(),
+            "vel_odjeca": self.entries["vel_odjeca"].get().strip(),
+            "vel_obuca": self.entries["vel_obuca"].get().strip(),
+            "oprema": self.entries["oprema"].get().strip(),
+            "jm": self.entries["jm"].get().strip() or "KOM",
+            "normativ": normativ,
+            "rok_mjeseci": rok,
+            "izdata_kol": kol,
+            "datum_zaduzenja": d_zad,
+            "napomena": self.entries["napomena"].get().strip()
+        }
+        self.destroy()
+
+
 class LZOApp:
     def __init__(self, root):
         self.root = root
@@ -529,7 +630,6 @@ class LZOApp:
         self.refresh_table(self.current_filtered_data)
 
     def generate_status_chart(self):
-        """Generiše PNG sliku grafikona za ugradnju u Excel i PDF izvještaje."""
         counts = {"VAŽEĆE": 0, "USKORO": 0, "ISTEKLO": 0}
         for item in self.current_filtered_data:
             st = item.get("status", "VAŽEĆE")
@@ -593,7 +693,6 @@ class LZOApp:
             ws.title = "LZO Karton"
             ws.views.sheetView[0].showGridLines = True
 
-            # Naslov i procentualni rezime
             ws.merge_cells("A1:P1")
             title_cell = ws["A1"]
             title_cell.value = "IZVJEŠTAJ ZADUŽENJA LIČNE ZAŠTITNE OPREME (LZO)"
@@ -663,7 +762,6 @@ class LZOApp:
                 col_letter = get_column_letter(col[0].column)
                 ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
 
-            # Ugradnja grafikona
             chart_img_path = self.generate_status_chart()
             img = OpenpyxlImage(chart_img_path)
             img.width = 450; img.height = 225
@@ -691,7 +789,6 @@ class LZOApp:
         if not save_path: return
 
         try:
-            # Registracija fonta koji podržava naša slova Č, Š, Ć, Đ, Ž
             pdf_font = get_pdf_unicode_font()
 
             doc = SimpleDocTemplate(save_path, pagesize=landscape(A4), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
@@ -703,246 +800,182 @@ class LZOApp:
             )
             sub_style = ParagraphStyle(
                 'SubStyle', parent=styles['Normal'], fontName=pdf_font,
-                fontSize=9, textColor=colors.HexColor('#334155'), alignment=1, spaceAfter=10
+                fontSize=9, textColor=colors.HexColor('#475569'), alignment=1, spaceAfter=12
             )
-            cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontName=pdf_font, fontSize=7, leading=8)
-            cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName=pdf_font, fontSize=7, leading=8)
+            table_cell_style = ParagraphStyle(
+                'TableCell', parent=styles['Normal'], fontName=pdf_font,
+                fontSize=7, leading=8
+            )
+            table_header_style = ParagraphStyle(
+                'TableHeader', parent=styles['Normal'], fontName=pdf_font,
+                fontSize=7, leading=8, textColor=colors.white
+            )
 
-            elements = []
-            elements.append(Paragraph("IZVJEŠTAJ ZADUŽENJA LIČNE ZAŠTITNE OPREME (LZO)", title_style))
+            story = []
 
+            story.append(Paragraph("<b>IZVJEŠTAJ ZADUŽENJA LIČNE ZAŠTITNE OPREME (LZO)</b>", title_style))
             summary_text, _, _, _ = self.get_summary_percentages()
-            elements.append(Paragraph(f"Datum generisanja: {datetime.now().strftime('%d.%m.%Y. u %H:%M')} | <b>STATISTIKA:</b> {summary_text}", sub_style))
+            story.append(Paragraph(f"Datum: {datetime.now().strftime('%d.%m.%Y. u %H:%M')} | STATISTIKA: {summary_text}", sub_style))
+            story.append(Spacer(1, 10))
 
-            # Dodavanje grafikona
-            chart_path = self.generate_status_chart()
-            elements.append(ReportLabImage(chart_path, width=300, height=150))
-            elements.append(Spacer(1, 8))
+            headers = [
+                "Zaposleni", "Radno mjesto", "Org. jed.", "Grad",
+                "Odj/Obu", "Oprema", "J.M.", "Norm.", "Rok",
+                "Kol.", "Zaduženo", "Ističe", "Preostalo", "Status"
+            ]
 
-            headers = ["Zaposleni", "Radno mjesto", "Org. jedinica", "Mjesto", "Oprema", "J.M.", "Norm.", "Rok", "Izd.", "Zaduženo", "Ističe", "Preostalo", "Status"]
-            table_data = [[Paragraph(f"<b>{h}</b>", ParagraphStyle('HStyle', parent=cell_bold, textColor=colors.white)) for h in headers]]
+            table_data = [[Paragraph(f"<b>{h}</b>", table_header_style) for h in headers]]
 
             for row in self.current_filtered_data:
                 d_zad = datetime.strptime(row["datum_zaduzenja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if row.get("datum_zaduzenja") else ""
                 d_ist = datetime.strptime(row["datum_isticanja"], "%Y-%m-%d").strftime("%d.%m.%Y.") if row.get("datum_isticanja") else ""
 
-                r_vals = [
-                    Paragraph(row.get("zaposleni", ""), cell_style),
-                    Paragraph(row.get("rm", ""), cell_style),
-                    Paragraph(row.get("org_jedinica", ""), cell_style),
-                    Paragraph(row.get("grad", ""), cell_style),
-                    Paragraph(row.get("oprema", ""), cell_style),
-                    Paragraph(str(row.get("jm", "KOM")), cell_style),
-                    Paragraph(str(row.get("normativ", 1)), cell_style),
-                    Paragraph(str(row.get("rok_mjeseci", 12)), cell_style),
-                    Paragraph(str(row.get("izdata_kol", 1)), cell_style),
-                    Paragraph(d_zad, cell_style),
-                    Paragraph(d_ist, cell_style),
-                    Paragraph(str(row.get("preostalo_dana", "-")), cell_style),
-                    Paragraph(f"<b>{row.get('status', '')}</b>", cell_style)
+                vel_info = f"{row.get('vel_odjeca','')}/{row.get('vel_obuca','')}"
+
+                row_cells = [
+                    Paragraph(str(row.get("zaposleni", "")), table_cell_style),
+                    Paragraph(str(row.get("rm", "")), table_cell_style),
+                    Paragraph(str(row.get("org_jedinica", "")), table_cell_style),
+                    Paragraph(str(row.get("grad", "")), table_cell_style),
+                    Paragraph(vel_info, table_cell_style),
+                    Paragraph(str(row.get("oprema", "")), table_cell_style),
+                    Paragraph(str(row.get("jm", "KOM")), table_cell_style),
+                    Paragraph(str(row.get("normativ", 1)), table_cell_style),
+                    Paragraph(str(row.get("rok_mjeseci", 12)), table_cell_style),
+                    Paragraph(str(row.get("izdata_kol", 1)), table_cell_style),
+                    Paragraph(d_zad, table_cell_style),
+                    Paragraph(d_ist, table_cell_style),
+                    Paragraph(str(row.get("preostalo_dana", "-")), table_cell_style),
+                    Paragraph(str(row.get("status", "")), table_cell_style),
                 ]
-                table_data.append(r_vals)
+                table_data.append(row_cells)
 
-            col_w = [85, 75, 75, 55, 110, 30, 30, 28, 28, 55, 55, 45, 50]
-            t = Table(table_data, colWidths=col_w, repeatRows=1)
-            
-            t_style = [
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E293B')),
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
-                ('TOPPADDING', (0,0), (-1,-1), 3),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-            ]
+            pdf_table = Table(table_data, repeatRows=1)
+            pdf_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E293B')),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')]),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ]))
 
-            for idx, r_item in enumerate(self.current_filtered_data, start=1):
-                st = r_item.get("status", "")
-                if st == "ISTEKLO":
-                    t_style.append(('BACKGROUND', (12, idx), (12, idx), colors.HexColor('#FECDD3')))
-                elif st == "USKORO":
-                    t_style.append(('BACKGROUND', (12, idx), (12, idx), colors.HexColor('#FEF08A')))
-                elif st == "VAŽEĆE":
-                    t_style.append(('BACKGROUND', (12, idx), (12, idx), colors.HexColor('#DCFCE7')))
+            story.append(pdf_table)
+            story.append(Spacer(1, 15))
 
-            t.setStyle(TableStyle(t_style))
-            elements.append(t)
+            chart_img_path = self.generate_status_chart()
+            story.append(ReportLabImage(chart_img_path, width=400, height=200))
 
-            doc.build(elements)
-            messagebox.showinfo("Uspjeh", "PDF izvještaj sa našim slovima, procentima i grafikonom je generisan!")
+            doc.build(story)
+            messagebox.showinfo("Uspjeh", "PDF izvještaj je uspješno generisan!")
         except Exception as e:
-            messagebox.showerror("Greška", f"Nije moguće generisati PDF fajl: {e}")
-
-    def import_excel(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
-        if not file_path: return
-
-        try:
-            df = pd.read_excel(file_path)
-            self.push_undo_state()  # Sačuvaj stanje za Undo
-
-            # Mapiranje kolona
-            new_items = []
-            max_id = max([x.get("id", 0) for x in self.data], default=0)
-
-            for idx, row in df.iterrows():
-                max_id += 1
-                d_zad = ""
-                if pd.notnull(row.get("Datum zaduženja")):
-                    try:
-                        d_zad = pd.to_datetime(row.get("Datum zaduženja")).strftime("%Y-%m-%d")
-                    except: pass
-
-                item = {
-                    "id": max_id,
-                    "zaposleni": str(row.get("Ime i prezime", "")).strip(),
-                    "rm": str(row.get("Radno mjesto", "")).strip(),
-                    "org_jedinica": str(row.get("Org. jedinica", "")).strip(),
-                    "grad": str(row.get("Mjesto / Grad", "")).strip(),
-                    "vel_odjeca": str(row.get("Vel. odjeća", "")).strip(),
-                    "vel_obuca": str(row.get("Vel. obuća", "")).strip(),
-                    "oprema": str(row.get("Oprema", "")).strip(),
-                    "jm": str(row.get("J.M.", "KOM")).strip(),
-                    "normativ": int(row.get("Normativ", 1) or 1),
-                    "rok_mjeseci": int(row.get("Rok (mj)", 12) or 12),
-                    "izdata_kol": int(row.get("Izdata kol.", 1) or 1),
-                    "datum_zaduzenja": d_zad,
-                    "napomena": str(row.get("Napomena", "")).strip()
-                }
-                new_items.append(item)
-
-            self.data.extend(new_items)
-            self.recalculate_and_refresh()
-            messagebox.showinfo("Uspjeh", f"Uspješno uvezeno {len(new_items)} zapisa iz Excel fajla!")
-        except Exception as e:
-            messagebox.showerror("Greška", f"Nije moguće uvoziti Excel fajl: {e}")
-
-    def delete_selected(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Upozorenje", "Izaberite jedan ili više zapisa za brisanje.")
-            return
-
-        if messagebox.askyesno("Potvrda brisanja", f"Da li ste sigurni da želite obrisati {len(selected)} selektovanih zapisa?"):
-            self.push_undo_state()  # Sačuvaj stanje za Undo
-            ids_to_delete = [self.tree.item(s)["values"][0] for s in selected]
-            self.data = [x for x in self.data if x["id"] not in ids_to_delete]
-            self.recalculate_and_refresh()
+            messagebox.showerror("Greška", f"Nije moguće generisati PDF izvještaj: {e}")
 
     def open_add_dialog(self):
-        self.show_edit_window(title="Novo zaduženje LZO", item=None)
+        dlg = RecordDialog(self.root, title="Novo zaduženje LZO")
+        self.root.wait_window(dlg)
+        if dlg.result:
+            self.push_undo_state()
+            new_id = max([r.get("id", 0) for r in self.data], default=0) + 1
+            dlg.result["id"] = new_id
+            self.data.append(dlg.result)
+            self.recalculate_and_refresh()
+            messagebox.showinfo("Uspjeh", "Novo zaduženje je uspješno dodato.")
 
     def open_edit_dialog(self, event=None):
         selected = self.tree.selection()
         if not selected:
-            messagebox.showwarning("Upozorenje", "Izaberite zapis iz tabele koji želite izmijeniti.")
+            messagebox.showwarning("Upozorenje", "Molimo vas da selektujete stavku za izmjenu.")
             return
 
-        item_id = self.tree.item(selected[0])["values"][0]
-        target_item = next((x for x in self.data if x["id"] == item_id), None)
-        if target_item:
-            self.show_edit_window(title="Izmjena zaduženja LZO", item=target_item)
+        item_vals = self.tree.item(selected[0], "values")
+        rec_id = item_vals[0]
+        record = next((r for r in self.data if str(r.get("id")) == str(rec_id)), None)
 
-    def show_edit_window(self, title, item=None):
-        win = tk.Toplevel(self.root)
-        win.title(title)
-        win.geometry("520x640")
-        win.configure(bg="#f8fafc")
-        win.grab_set()
+        if not record:
+            messagebox.showerror("Greška", "Selektovani zapis nije pronađen u bazi.")
+            return
 
-        fields = [
-            ("Ime i Prezime:", "zaposleni"),
-            ("Radno Mjesto:", "rm"),
-            ("Organizaciona Jedinica:", "org_jedinica"),
-            ("Mjesto / Grad:", "grad"),
-            ("Veličina Odjeće:", "vel_odjeca"),
-            ("Veličina Obuće:", "vel_obuca"),
-            ("Naziv Opreme:", "oprema"),
-            ("Jedinica Mjere:", "jm"),
-            ("Normativ - Količina:", "normativ"),
-            ("Rok u mjesecima:", "rok_mjeseci"),
-            ("Izdata Količina:", "izdata_kol"),
-            ("Datum Zaduženja (GGGG-MM-DD):", "datum_zaduzenja"),
-            ("Napomena:", "napomena")
-        ]
+        dlg = RecordDialog(self.root, title="Izmjena zaduženja LZO", record=record)
+        self.root.wait_window(dlg)
+        if dlg.result:
+            self.push_undo_state()
+            for idx, r in enumerate(self.data):
+                if str(r.get("id")) == str(rec_id):
+                    self.data[idx] = dlg.result
+                    break
+            self.recalculate_and_refresh()
+            messagebox.showinfo("Uspjeh", "Zapis je uspješno izmijenjen.")
 
-        entries = {}
-        for idx, (label_text, key) in enumerate(fields):
-            tk.Label(win, text=label_text, font=("Segoe UI", 9, "bold"), bg="#f8fafc", fg="#334155").grid(row=idx, column=0, sticky="w", padx=20, pady=4)
-            entry = ttk.Entry(win, width=32)
-            entry.grid(row=idx, column=1, padx=20, pady=4)
+    def delete_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Upozorenje", "Molimo vas da selektujete stavku ili više njih za brisanje.")
+            return
 
-            if item:
-                entry.insert(0, str(item.get(key, "")))
-            entries[key] = entry
+        if not messagebox.askyesno("Potvrda brisanja", f"Da li ste sigurni da želite obrisati {len(selected)} selektovanih zapisa?"):
+            return
 
-        def save():
-            zaposleni = entries["zaposleni"].get().strip()
-            oprema = entries["oprema"].get().strip()
+        self.push_undo_state()
+        ids_to_delete = {str(self.tree.item(s, "values")[0]) for s in selected}
+        self.data = [r for r in self.data if str(r.get("id")) not in ids_to_delete]
+        self.recalculate_and_refresh()
+        messagebox.showinfo("Uspjeh", "Selektovani zapisi su obrisani.")
 
-            if not zaposleni or not oprema:
-                messagebox.showerror("Greška", "Ime zaposlenog i naziv opreme su obavezni!", parent=win)
-                return
+    def import_excel(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Excel Files", "*.xlsx *.xls")]
+        )
+        if not file_path:
+            return
 
-            try:
-                normativ = int(entries["normativ"].get().strip() or 1)
-                rok = int(entries["rok_mjeseci"].get().strip() or 12)
-                izdata_kol = int(entries["izdata_kol"].get().strip() or 1)
-            except ValueError:
-                messagebox.showerror("Greška", "Normativ, Rok i Izdata količina moraju biti cijeli brojevi!", parent=win)
-                return
+        try:
+            df = pd.read_excel(file_path)
+            self.push_undo_state()
 
-            d_zad = entries["datum_zaduzenja"].get().strip()
-            if d_zad:
-                try:
-                    datetime.strptime(d_zad, "%Y-%m-%d")
-                except ValueError:
-                    messagebox.showerror("Greška", "Datum mora biti u formatu GGGG-MM-DD (npr. 2026-05-20)", parent=win)
-                    return
+            col_map = {
+                "Zaposleni": "zaposleni", "Radno mjesto": "rm", "Org. jedinica": "org_jedinica",
+                "Grad": "grad", "Mjesto": "grad", "Vel. odjeća": "vel_odjeca", "Vel. obuća": "vel_obuca",
+                "Oprema": "oprema", "J.M.": "jm", "Normativ": "normativ", "Rok (mj)": "rok_mjeseci",
+                "Izdata kol.": "izdata_kol", "Zaduženo": "datum_zaduzenja", "Napomena": "napomena"
+            }
 
-            self.push_undo_state()  # Sačuvaj stanje za Undo
+            next_id = max([r.get("id", 0) for r in self.data], default=0) + 1
 
-            if item:
-                item["zaposleni"] = zaposleni
-                item["rm"] = entries["rm"].get().strip()
-                item["org_jedinica"] = entries["org_jedinica"].get().strip()
-                item["grad"] = entries["grad"].get().strip()
-                item["vel_odjeca"] = entries["vel_odjeca"].get().strip()
-                item["vel_obuca"] = entries["vel_obuca"].get().strip()
-                item["oprema"] = oprema
-                item["jm"] = entries["jm"].get().strip() or "KOM"
-                item["normativ"] = normativ
-                item["rok_mjeseci"] = rok
-                item["izdata_kol"] = izdata_kol
-                item["datum_zaduzenja"] = d_zad
-                item["napomena"] = entries["napomena"].get().strip()
-            else:
-                max_id = max([x.get("id", 0) for x in self.data], default=0) + 1
-                new_item = {
-                    "id": max_id,
-                    "zaposleni": zaposleni,
-                    "rm": entries["rm"].get().strip(),
-                    "org_jedinica": entries["org_jedinica"].get().strip(),
-                    "grad": entries["grad"].get().strip(),
-                    "vel_odjeca": entries["vel_odjeca"].get().strip(),
-                    "vel_obuca": entries["vel_obuca"].get().strip(),
-                    "oprema": oprema,
-                    "jm": entries["jm"].get().strip() or "KOM",
-                    "normativ": normativ,
-                    "rok_mjeseci": rok,
-                    "izdata_kol": izdata_kol,
-                    "datum_zaduzenja": d_zad,
-                    "napomena": entries["napomena"].get().strip()
-                }
-                self.data.append(new_item)
+            imported_count = 0
+            for _, row in df.iterrows():
+                rec = {"id": next_id}
+                next_id += 1
+
+                for col, key in col_map.items():
+                    if col in row and pd.notna(row[col]):
+                        rec[key] = str(row[col]).strip()
+                    else:
+                        rec.setdefault(key, "")
+
+                if rec.get("datum_zaduzenja"):
+                    try:
+                        rec["datum_zaduzenja"] = pd.to_datetime(rec["datum_zaduzenja"]).strftime("%Y-%m-%d")
+                    except Exception:
+                        rec["datum_zaduzenja"] = datetime.now().strftime("%Y-%m-%d")
+
+                try: rec["normativ"] = int(float(rec.get("normativ") or 1))
+                except: rec["normativ"] = 1
+
+                try: rec["rok_mjeseci"] = int(float(rec.get("rok_mjeseci") or 12))
+                except: rec["rok_mjeseci"] = 12
+
+                try: rec["izdata_kol"] = int(float(rec.get("izdata_kol") or 1))
+                except: rec["izdata_kol"] = 1
+
+                self.data.append(rec)
+                imported_count += 1
 
             self.recalculate_and_refresh()
-            win.destroy()
-
-        btn_save = tk.Button(
-            win, text="💾 Sačuvaj promjene", command=save,
-            bg="#16a34a", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", pady=6
-        )
-        btn_save.grid(row=len(fields), column=0, columnspan=2, fill=tk.X, padx=20, pady=15)
+            messagebox.showinfo("Uspjeh", f"Uspješno uvezeno {imported_count} zapisa iz Excel fajla!")
+        except Exception as e:
+            messagebox.showerror("Greška", f"Greška pri uvozu Excel fajla: {e}")
 
 
 if __name__ == "__main__":
