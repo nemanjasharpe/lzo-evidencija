@@ -712,49 +712,71 @@ class LZOApp:
         except Exception as e:
             messagebox.showerror("Greška", f"Nije moguće generisati PDF fajl: {e}")
 
-    def import_excel(self):
+def import_excel(self):
         file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
         if not file_path: return
 
         try:
-            df = pd.read_excel(file_path)
+            xls = pd.ExcelFile(file_path)
             self.push_undo_state() # Čuvanje stanja prije uvoza
 
             imported_count = 0
-            for _, row in df.iterrows():
-                d_zad = ""
-                if pd.notna(row.get("Datum zaduženja")) or pd.notna(row.get("datum_zaduzenja")):
-                    raw_d = row.get("Datum zaduženja") if pd.notna(row.get("Datum zaduženja")) else row.get("datum_zaduzenja")
-                    if isinstance(raw_d, datetime):
-                        d_zad = raw_d.strftime("%Y-%m-%d")
-                    else:
-                        d_zad = str(raw_d)[:10]
+            new_data = []
 
-                item_id = int(row.get("ID")) if pd.notna(row.get("ID")) else (max([x.get("id", 0) for x in self.data], default=0) + 1)
+            for sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet_name)
+                
+                # Automatsko popunjavanje praznih polja nastalih spajanjem ćelija (ffill)
+                demo_cols = [c for c in df.columns if c in [
+                    'Zaposleni', 'Ime i prezime', 'RM', 'Radno mjesto', 
+                    'Organizaciona jedinica', 'Org. jedinica', 'Grad', 'Mjesto', 
+                    'Konfekcijski broj - veličina', 'Unnamed: 5', 'Vel. odjeća', 'Vel. obuća'
+                ]]
+                if demo_cols:
+                    df[demo_cols] = df[demo_cols].ffill()
 
-                item = {
-                    "id": item_id,
-                    "zaposleni": str(row.get("Ime i prezime", row.get("zaposleni", ""))).strip(),
-                    "rm": str(row.get("Radno mjesto", row.get("rm", ""))).strip(),
-                    "org_jedinica": str(row.get("Org. jedinica", row.get("org_jedinica", ""))).strip(),
-                    "grad": str(row.get("Mjesto", row.get("grad", ""))).strip(),
-                    "vel_odjeca": str(row.get("Vel. odjeća", row.get("vel_odjeca", ""))).strip(),
-                    "vel_obuca": str(row.get("Vel. obuća", row.get("vel_obuca", ""))).strip(),
-                    "oprema": str(row.get("Oprema", row.get("oprema", ""))).strip(),
-                    "jm": str(row.get("J.M.", row.get("jm", "KOM"))).strip(),
-                    "normativ": int(row.get("Normativ", row.get("normativ", 1)) or 1),
-                    "rok_mjeseci": int(row.get("Rok (mj)", row.get("rok_mjeseci", 12)) or 12),
-                    "izdata_kol": int(row.get("Izdata kol.", row.get("izdata_kol", 1)) or 1),
-                    "datum_zaduzenja": d_zad,
-                    "napomena": str(row.get("Napomena", row.get("napomena", ""))).strip()
-                }
+                for _, row in df.iterrows():
+                    # Dinamičko prepoznavanje kolona iz vašeg Excel fajla
+                    zaposleni = str(row.get("Zaposleni", row.get("Ime i prezime", row.get("zaposleni", "")))).strip()
+                    oprema = str(row.get("Naziv sredstva/opreme", row.get("Oprema", row.get("oprema", "")))).strip()
 
-                if item["zaposleni"] and item["oprema"]:
-                    self.data.append(item)
+                    if not zaposleni or zaposleni.lower() == "nan" or not oprema or oprema.lower() == "nan":
+                        continue
+
+                    # Obrada datuma zaduženja
+                    d_zad = ""
+                    raw_d = row.get("Datum zaduženja", row.get("datum_zaduzenja"))
+                    if pd.notna(raw_d):
+                        if isinstance(raw_d, (datetime, pd.Timestamp)):
+                            d_zad = raw_d.strftime("%Y-%m-%d")
+                        else:
+                            d_zad = str(raw_d)[:10]
+
+                    item_id = len(new_data) + len(self.data) + 1
+
+                    item = {
+                        "id": item_id,
+                        "zaposleni": zaposleni,
+                        "rm": "" if pd.isna(row.get("RM", row.get("Radno mjesto"))) else str(row.get("RM", row.get("Radno mjesto", ""))).strip(),
+                        "org_jedinica": "" if pd.isna(row.get("Organizaciona jedinica", row.get("Org. jedinica"))) else str(row.get("Organizaciona jedinica", row.get("Org. jedinica", ""))).strip(),
+                        "grad": "" if pd.isna(row.get("Grad", row.get("Mjesto"))) else str(row.get("Grad", row.get("Mjesto", ""))).strip(),
+                        "vel_odjeca": "" if pd.isna(row.get("Unnamed: 5", row.get("Vel. odjeća"))) else str(row.get("Unnamed: 5", row.get("Vel. odjeća", ""))).strip(),
+                        "vel_obuca": "" if pd.isna(row.get("Konfekcijski broj - veličina", row.get("Vel. obuća"))) else str(row.get("Konfekcijski broj - veličina", row.get("Vel. obuća", ""))).strip(),
+                        "oprema": oprema,
+                        "jm": "KOM" if pd.isna(row.get("Jedinica mjere", row.get("J.M."))) else str(row.get("Jedinica mjere", row.get("J.M.", "KOM"))).strip(),
+                        "normativ": 1 if pd.isna(row.get("Količina (Normativ)", row.get("Normativ"))) else int(row.get("Količina (Normativ)", row.get("Normativ", 1)) or 1),
+                        "rok_mjeseci": 12 if pd.isna(row.get("Rok (mjeseci)", row.get("Rok (mj)"))) else int(row.get("Rok (mjeseci)", row.get("Rok (mj)", 12)) or 12),
+                        "izdata_kol": 1 if pd.isna(row.get("Izdata količina", row.get("Izdata kol."))) else int(row.get("Izdata količina", row.get("Izdata kol.", 1)) or 1),
+                        "datum_zaduzenja": d_zad,
+                        "napomena": "" if pd.isna(row.get("NAPOMENA", row.get("Napomena"))) else str(row.get("NAPOMENA", row.get("Napomena", ""))).strip()
+                    }
+
+                    new_data.append(item)
                     imported_count += 1
 
+            self.data.extend(new_data)
             self.recalculate_and_refresh()
-            messagebox.showinfo("Uspjeh", f"Uspješno uvezeno {imported_count} zapisa iz Excel-a!")
+            messagebox.showinfo("Uspjeh", f"Uspješno uvezeno {imported_count} zapisa iz Excel fajla!")
         except Exception as e:
             messagebox.showerror("Greška", f"Nije moguće uvesti podatke iz Excel-a: {e}")
 
