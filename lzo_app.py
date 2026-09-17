@@ -67,7 +67,7 @@ class LoginWindow(tk.Toplevel):
         self.configure(bg="#f8fafc")
         
         # Centriranje prozora
-        self.eval('tk::PlaceWindow . center')
+        self.tk.eval('tk::PlaceWindow . center')
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.create_widgets()
